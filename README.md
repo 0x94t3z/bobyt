@@ -178,7 +178,7 @@ Only if you intentionally disable that protection should you set:
 |---|---|
 | `TRADING_BOT_REQUIRE_SCAN_AUTH=true` | Protect `/api/scan` and `/api/status` |
 | `TRADING_BOT_SCAN_TOKEN=<secret>` | `/api/scan` execution token (`Authorization: Bearer <token>`) |
-| `TRADING_BOT_STATUS_TOKEN=<secret>` | Optional read-only token for `/api/status` (recommended to keep separate) |
+| `TRADING_BOT_STATUS_TOKEN=<secret>` | Read-only token for `/api/status`; keep different from `TRADING_BOT_SCAN_TOKEN` |
 | `TRADING_BOT_ALLOW_LIVE_ON_VERCEL` | `true` only if you intentionally allow live orders on Vercel |
 
 ### Neon/PostgreSQL state backend

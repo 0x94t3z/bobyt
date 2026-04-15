@@ -365,6 +365,42 @@ def fetch_bybit_order_history_for_symbol(
     return payload.get("result", {}).get("list", []) or []
 
 
+def fetch_bybit_execution_history_for_symbol(
+    base_urls: List[str],
+    api_key: str,
+    api_secret: str,
+    recv_window: int,
+    category: str,
+    symbol: str,
+    limit: int = 50,
+    start_time_ms: int = 0,
+    end_time_ms: int = 0,
+) -> List[Dict[str, Any]]:
+    params: Dict[str, Any] = {
+        "category": category,
+        "symbol": symbol,
+        "limit": max(1, min(int(limit), 100)),
+    }
+    if start_time_ms > 0:
+        params["startTime"] = int(start_time_ms)
+    if end_time_ms > 0:
+        params["endTime"] = int(end_time_ms)
+    payload = bybit_signed_get_with_fallback(
+        base_urls=base_urls,
+        path="/v5/execution/list",
+        params=params,
+        api_key=api_key,
+        api_secret=api_secret,
+        recv_window=recv_window,
+    )
+    if payload.get("retCode") != 0:
+        raise ValueError(
+            f"Bybit execution history error for {symbol}: retCode={payload.get('retCode')} "
+            f"retMsg={payload.get('retMsg')}"
+        )
+    return payload.get("result", {}).get("list", []) or []
+
+
 def fetch_bybit_live_position_for_symbol(
     base_urls: List[str],
     api_key: str,

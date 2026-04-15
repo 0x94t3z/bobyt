@@ -30,6 +30,7 @@ from .bybit_client import (
     bybit_signed_post_with_fallback as client_bybit_signed_post_with_fallback,
     cancel_bybit_order as client_cancel_bybit_order,
     extract_bybit_order_id as client_extract_bybit_order_id,
+    fetch_bybit_execution_history_for_symbol as client_fetch_bybit_execution_history_for_symbol,
     fetch_bybit_instrument_constraints as client_fetch_bybit_instrument_constraints,
     fetch_bybit_live_position_for_symbol as client_fetch_bybit_live_position_for_symbol,
     fetch_bybit_order_history_for_symbol as client_fetch_bybit_order_history_for_symbol,
@@ -107,6 +108,7 @@ def build_default_state() -> Dict[str, Any]:
         "live_open_positions": {},
         "live_pending_entries": {},
         "spot_entry_hints": {},
+        "spot_close_candidates": {},
     }
 
 
@@ -1094,6 +1096,30 @@ def fetch_bybit_order_history_for_symbol(
     )
 
 
+def fetch_bybit_execution_history_for_symbol(
+    base_urls: List[str],
+    api_key: str,
+    api_secret: str,
+    recv_window: int,
+    category: str,
+    symbol: str,
+    limit: int = 50,
+    start_time_ms: int = 0,
+    end_time_ms: int = 0,
+) -> List[Dict[str, Any]]:
+    return client_fetch_bybit_execution_history_for_symbol(
+        base_urls=base_urls,
+        api_key=api_key,
+        api_secret=api_secret,
+        recv_window=recv_window,
+        category=category,
+        symbol=symbol,
+        limit=limit,
+        start_time_ms=start_time_ms,
+        end_time_ms=end_time_ms,
+    )
+
+
 def fetch_bybit_live_position_for_symbol(
     base_urls: List[str],
     api_key: str,
@@ -1155,6 +1181,122 @@ def get_bybit_order_fill_price(order_row: Dict[str, Any], fallback_price: float 
     if candidate > 0:
         return candidate
     return fallback_price
+
+
+def parse_bot_utc_to_ts(value: Any) -> float:
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        dt = datetime.strptime(text, "%Y-%m-%d %H:%M:%S UTC")
+        return dt.replace(tzinfo=timezone.utc).timestamp()
+    except Exception:
+        return 0.0
+
+
+def extract_timestamp_ms(row: Dict[str, Any], keys: List[str]) -> int:
+    for key in keys:
+        raw = row.get(key)
+        ts_ms = int(to_float(raw, 0.0))
+        if ts_ms > 0:
+            return ts_ms
+    return 0
+
+
+def find_spot_exit_fill_summary(
+    execution_rows: List[Dict[str, Any]],
+    opened_at_ts: float = 0.0,
+) -> Dict[str, Any]:
+    if not execution_rows:
+        return {}
+    candidates: List[Dict[str, Any]] = []
+    for row in execution_rows:
+        side = str(row.get("side", "")).upper()
+        if side != "SELL":
+            continue
+        exec_qty = abs(to_float(row.get("execQty"), 0.0))
+        exec_price = to_float(row.get("execPrice"), 0.0)
+        if exec_qty <= 0 or exec_price <= 0:
+            continue
+        ts_ms = extract_timestamp_ms(row, ["execTime", "createdTime", "updatedTime"])
+        if opened_at_ts > 0 and ts_ms > 0:
+            # small grace window for clock skew across systems
+            if ts_ms < int((opened_at_ts - 120.0) * 1000):
+                continue
+        enriched = dict(row)
+        enriched["_exec_ts_ms"] = ts_ms
+        candidates.append(enriched)
+    if not candidates:
+        return {}
+
+    candidates.sort(
+        key=lambda x: (int(to_float(x.get("_exec_ts_ms"), 0.0)), int(is_bot_owned_marker(x))),
+        reverse=True,
+    )
+    latest = candidates[0]
+    order_id = str(latest.get("orderId", "")).strip()
+    grouped = [latest]
+    if order_id:
+        grouped = [row for row in candidates if str(row.get("orderId", "")).strip() == order_id]
+
+    total_qty = sum(abs(to_float(row.get("execQty"), 0.0)) for row in grouped)
+    if total_qty <= 0:
+        return {}
+    weighted_exit = sum(
+        abs(to_float(row.get("execQty"), 0.0)) * to_float(row.get("execPrice"), 0.0)
+        for row in grouped
+    ) / total_qty
+    ts_ms = max(int(to_float(row.get("_exec_ts_ms"), 0.0)) for row in grouped)
+    return {
+        "exit_price": weighted_exit,
+        "exit_qty": total_qty,
+        "exec_time_ms": ts_ms,
+        "order_id": order_id,
+        "order_link_id": str(latest.get("orderLinkId", "")).strip(),
+        "source": "bot_link" if is_bot_owned_marker(latest) else "recent_sell_execution",
+    }
+
+
+def find_execution_fill_for_order(
+    execution_rows: List[Dict[str, Any]],
+    order_id: str = "",
+    order_link_id: str = "",
+) -> Dict[str, Any]:
+    order_id = str(order_id or "").strip()
+    order_link_id = str(order_link_id or "").strip()
+    if not execution_rows:
+        return {}
+    selected: List[Dict[str, Any]] = []
+    if order_id:
+        selected = [row for row in execution_rows if str(row.get("orderId", "")).strip() == order_id]
+    if not selected and order_link_id:
+        selected = [
+            row for row in execution_rows if str(row.get("orderLinkId", "")).strip() == order_link_id
+        ]
+    if not selected:
+        return {}
+    filled_rows = []
+    for row in selected:
+        qty = abs(to_float(row.get("execQty"), 0.0))
+        price = to_float(row.get("execPrice"), 0.0)
+        if qty <= 0 or price <= 0:
+            continue
+        filled_rows.append(row)
+    if not filled_rows:
+        return {}
+    total_qty = sum(abs(to_float(row.get("execQty"), 0.0)) for row in filled_rows)
+    if total_qty <= 0:
+        return {}
+    weighted_price = sum(
+        abs(to_float(row.get("execQty"), 0.0)) * to_float(row.get("execPrice"), 0.0)
+        for row in filled_rows
+    ) / total_qty
+    ts_ms = max(extract_timestamp_ms(row, ["execTime", "createdTime", "updatedTime"]) for row in filled_rows)
+    return {
+        "exit_price": weighted_price,
+        "exit_qty": total_qty,
+        "exec_time_ms": ts_ms,
+    }
 
 
 def fetch_bybit_live_equity_usdt(
@@ -2211,6 +2353,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     live_open_positions_state: Dict[str, Dict[str, Any]] = state.setdefault("live_open_positions", {})
     live_pending_entries_state: Dict[str, Dict[str, Any]] = state.setdefault("live_pending_entries", {})
     spot_entry_hints: Dict[str, Dict[str, Any]] = state.setdefault("spot_entry_hints", {})
+    spot_close_candidates: Dict[str, Dict[str, Any]] = state.setdefault("spot_close_candidates", {})
     if not isinstance(live_open_positions_state, dict):
         live_open_positions_state = {}
         state["live_open_positions"] = live_open_positions_state
@@ -2220,6 +2363,9 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(spot_entry_hints, dict):
         spot_entry_hints = {}
         state["spot_entry_hints"] = spot_entry_hints
+    if not isinstance(spot_close_candidates, dict):
+        spot_close_candidates = {}
+        state["spot_close_candidates"] = spot_close_candidates
     ensure_trade_history_state(state)
     risk_state = ensure_risk_state(state)
 
@@ -2454,6 +2600,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                         "status": str(row.get("orderStatus", "")),
                         "updated_at": now_utc_str(),
                     }
+                    spot_close_candidates.pop(symbol, None)
 
                 if not spot_wallet_sync_ok:
                     live_sync_errors[symbol] = f"spot wallet sync unavailable: {spot_wallet_sync_error}"
@@ -2471,6 +2618,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                 min_qty = to_float(qty_constraints.get("min_qty"), 0.0)
                 qty_threshold = min_qty if min_qty > 0 else 0.0
                 if held_qty > qty_threshold:
+                    spot_close_candidates.pop(symbol, None)
                     hint_candidates = [
                         spot_entry_hints.get(symbol),
                         positions.get(symbol),
@@ -2561,15 +2709,68 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                             close_marker = prior_hint
 
                     if close_marker:
+                        candidate = spot_close_candidates.get(symbol)
+                        if not isinstance(candidate, dict):
+                            candidate = {
+                                "first_seen_at": now_utc_str(),
+                                "first_seen_ts": now_utc_ts(),
+                                "attempts": 0,
+                            }
+                            spot_close_candidates[symbol] = candidate
+                        candidate["attempts"] = int(to_float(candidate.get("attempts"), 0.0)) + 1
+
                         entry_price = to_float(close_marker.get("entry"), 0.0)
                         if entry_price <= 0:
                             entry_price = to_float(close_marker.get("price"), 0.0)
                         closed_qty = to_float(close_marker.get("qty"), 0.0)
                         if entry_price > 0 and closed_qty > 0:
-                            ticker_row = ticker_maps.get("spot", {}).get(symbol, {})
-                            exit_price = to_float(ticker_row.get("lastPrice"), 0.0)
+                            opened_at_ts = parse_bot_utc_to_ts(close_marker.get("opened_at"))
+                            now_ts = now_utc_ts()
+                            start_time_ms = 0
+                            if opened_at_ts > 0:
+                                # Query a bounded window around the tracked position lifecycle.
+                                start_time_ms = int(max(0.0, (opened_at_ts - (12 * 60 * 60)) * 1000))
+                            end_time_ms = int((now_ts + 120.0) * 1000)
+
+                            execution_rows: List[Dict[str, Any]] = []
+                            try:
+                                execution_rows = fetch_bybit_execution_history_for_symbol(
+                                    base_urls=base_urls,
+                                    api_key=api_key,
+                                    api_secret=api_secret,
+                                    recv_window=recv_window,
+                                    category="spot",
+                                    symbol=symbol,
+                                    limit=100,
+                                    start_time_ms=start_time_ms,
+                                    end_time_ms=end_time_ms,
+                                )
+                            except Exception as e:
+                                live_sync_errors[symbol] = f"spot execution sync failed: {e}"
+                                cycle_errors.append(f"[LIVE_SYNC:{symbol}] Spot execution error: {e}")
+
+                            exit_fill = find_spot_exit_fill_summary(
+                                execution_rows=execution_rows,
+                                opened_at_ts=opened_at_ts,
+                            )
+                            close_confirmed = bool(exit_fill)
+                            if not close_confirmed:
+                                close_confirmed = int(to_float(candidate.get("attempts"), 0.0)) >= 2
+                            if not close_confirmed:
+                                # Wait for at least one more cycle when close has no explicit fill evidence.
+                                continue
+
+                            exit_price = to_float(exit_fill.get("exit_price"), 0.0)
+                            pnl_estimated = False
+                            exit_signal = "LIVE_SYNC_EXIT_FILL"
                             if exit_price <= 0:
-                                exit_price = entry_price
+                                ticker_row = ticker_maps.get("spot", {}).get(symbol, {})
+                                exit_price = to_float(ticker_row.get("lastPrice"), 0.0)
+                                if exit_price <= 0:
+                                    exit_price = entry_price
+                                pnl_estimated = True
+                                exit_signal = "LIVE_SYNC_EXIT_ESTIMATED"
+
                             pnl = compute_trade_pnl_usdt(
                                 entry_price=entry_price,
                                 exit_price=exit_price,
@@ -2592,9 +2793,15 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                             elif pnl > 0:
                                 risk_state["consecutive_losses"] = 0
 
+                            source_note = (
+                                str(exit_fill.get("source", "recent_sell_execution"))
+                                if exit_signal == "LIVE_SYNC_EXIT_FILL"
+                                else "ticker_estimate"
+                            )
                             cycle_alerts.append(
                                 f"CLOSED {symbol} (LIVE_SYNC) | PnL {pnl:.2f} USDT | "
-                                f"Daily PnL {risk_state['daily_realized_pnl_usdt']:.2f} USDT"
+                                f"Daily PnL {risk_state['daily_realized_pnl_usdt']:.2f} USDT | "
+                                f"price_source={source_note}"
                             )
                             closed_at = now_utc_str()
                             closed_at_ts = now_utc_ts()
@@ -2616,7 +2823,10 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         exit_price=exit_price,
                                         costs_cfg=costs_cfg,
                                     ),
-                                    "exit_signal": "LIVE_SYNC_EXIT",
+                                    "exit_signal": exit_signal,
+                                    "pnl_estimated": pnl_estimated,
+                                    "close_confirmed_by_fill": bool(exit_fill),
+                                    "close_confirmation_attempts": int(to_float(candidate.get("attempts"), 0.0)),
                                     "costs": {
                                         "entry_fee_pct": to_float(costs_cfg.get("entry_fee_pct"), 0.0),
                                         "exit_fee_pct": to_float(costs_cfg.get("exit_fee_pct"), 0.0),
@@ -2630,18 +2840,22 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                 state=state,
                                 live_equity_override_usdt=live_equity_override_usdt,
                             )
+                        spot_close_candidates.pop(symbol, None)
                         positions.pop(symbol, None)
                         spot_entry_hints.pop(symbol, None)
                     elif is_bot_owned_marker(spot_entry_hints.get(symbol)):
+                        spot_close_candidates.pop(symbol, None)
                         spot_entry_hints.pop(symbol, None)
 
         state["live_open_positions"] = live_synced_positions
         state["live_pending_entries"] = live_synced_pending_entries
         state["spot_entry_hints"] = spot_entry_hints
+        state["spot_close_candidates"] = spot_close_candidates
     else:
         state["live_open_positions"] = {}
         state["live_pending_entries"] = {}
         state["spot_entry_hints"] = spot_entry_hints
+        state["spot_close_candidates"] = spot_close_candidates
 
     for job in symbol_jobs:
         symbol = job["symbol"]
@@ -2869,6 +3083,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                             qty = to_float(pos.get("qty"), 0.0)
                             if entry > 0 and qty > 0:
                                 exit_allowed = True
+                                exit_fill: Dict[str, Any] = {}
                                 exec_mode = str(exec_ctx.get("mode", "paper")).lower()
                                 market_category = normalize_bybit_category(
                                     result.get("market_category"),
@@ -2916,6 +3131,45 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                             cycle_alerts.append(
                                                 f"EXIT EXECUTION {symbol} | {exec_result.get('message')}"
                                             )
+                                            exit_res = exec_result.get("responses", {}).get("exit_order", {})
+                                            exit_order_id = extract_bybit_order_id(exit_res)
+                                            exit_order_link_id = str(
+                                                exit_plan.get("exit_order", {}).get("orderLinkId", "")
+                                            ).strip()
+                                            opened_at_ts = parse_bot_utc_to_ts(pos.get("opened_at"))
+                                            start_time_ms = (
+                                                int(max(0.0, (opened_at_ts - (12 * 60 * 60)) * 1000))
+                                                if opened_at_ts > 0
+                                                else 0
+                                            )
+                                            end_time_ms = int((now_utc_ts() + 120.0) * 1000)
+                                            execution_rows: List[Dict[str, Any]] = []
+                                            try:
+                                                execution_rows = fetch_bybit_execution_history_for_symbol(
+                                                    base_urls=get_bybit_base_urls(exchange_cfg),
+                                                    api_key=str(exec_ctx.get("api_key", "")),
+                                                    api_secret=str(exec_ctx.get("api_secret", "")),
+                                                    recv_window=int(exec_ctx.get("recv_window", 5000)),
+                                                    category="spot",
+                                                    symbol=symbol,
+                                                    limit=100,
+                                                    start_time_ms=start_time_ms,
+                                                    end_time_ms=end_time_ms,
+                                                )
+                                            except Exception as e:
+                                                cycle_errors.append(
+                                                    f"[LIVE_SYNC:{symbol}] Spot execution error (exit): {e}"
+                                                )
+                                            exit_fill = find_execution_fill_for_order(
+                                                execution_rows=execution_rows,
+                                                order_id=exit_order_id,
+                                                order_link_id=exit_order_link_id,
+                                            )
+                                            if not exit_fill:
+                                                exit_fill = find_spot_exit_fill_summary(
+                                                    execution_rows=execution_rows,
+                                                    opened_at_ts=opened_at_ts,
+                                                )
                                         else:
                                             exit_allowed = False
                                             cycle_alerts.append(
@@ -2929,8 +3183,13 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                 live_synced_positions.pop(symbol, None)
                                 live_synced_pending_entries.pop(symbol, None)
                                 spot_entry_hints.pop(symbol, None)
+                                spot_close_candidates.pop(symbol, None)
 
-                                exit_price = to_float(result.get("price"), entry)
+                                exit_price = to_float(exit_fill.get("exit_price"), 0.0)
+                                pnl_estimated = False
+                                if exit_price <= 0:
+                                    exit_price = to_float(result.get("price"), entry)
+                                    pnl_estimated = True
                                 pnl = compute_trade_pnl_usdt(
                                     entry_price=entry,
                                     exit_price=exit_price,
@@ -2952,9 +3211,15 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         )
                                 elif pnl > 0:
                                     risk_state["consecutive_losses"] = 0
+                                price_source = (
+                                    str(exit_fill.get("source", "exchange_execution"))
+                                    if not pnl_estimated
+                                    else "strategy_price_estimate"
+                                )
                                 cycle_alerts.append(
                                     f"CLOSED {symbol} | PnL {pnl:.2f} USDT | "
-                                    f"Daily PnL {risk_state['daily_realized_pnl_usdt']:.2f} USDT"
+                                    f"Daily PnL {risk_state['daily_realized_pnl_usdt']:.2f} USDT | "
+                                    f"price_source={price_source}"
                                 )
                                 closed_at = now_utc_str()
                                 closed_at_ts = now_utc_ts()
@@ -2977,6 +3242,8 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                             costs_cfg=costs_cfg,
                                         ),
                                         "exit_signal": signal,
+                                        "pnl_estimated": pnl_estimated,
+                                        "close_confirmed_by_fill": bool(exit_fill),
                                         "costs": {
                                             "entry_fee_pct": to_float(costs_cfg.get("entry_fee_pct"), 0.0),
                                             "exit_fee_pct": to_float(costs_cfg.get("exit_fee_pct"), 0.0),

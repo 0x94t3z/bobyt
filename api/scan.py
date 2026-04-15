@@ -148,18 +148,28 @@ class handler(BaseHTTPRequestHandler):
         self._set_headers(status_code=status_code, content_type="text/html; charset=utf-8")
         self.wfile.write(payload.encode("utf-8"))
 
-    def _is_authorized(self, query: Dict[str, List[str]]) -> tuple[bool, str]:
+    def _resolve_auth_secret(self, path: str) -> tuple[str, str]:
+        scan_secret = str(
+            os.getenv("TRADING_BOT_SCAN_TOKEN", "") or os.getenv("CRON_SECRET", "")
+        ).strip()
+        status_secret = str(os.getenv("TRADING_BOT_STATUS_TOKEN", "")).strip()
+
+        if path == "/api/status":
+            secret = status_secret or scan_secret
+            return secret, "TRADING_BOT_STATUS_TOKEN (or TRADING_BOT_SCAN_TOKEN / CRON_SECRET)"
+
+        return scan_secret, "TRADING_BOT_SCAN_TOKEN (or CRON_SECRET)"
+
+    def _is_authorized(self, path: str) -> tuple[bool, str]:
         require_auth = parse_env_bool(os.getenv("TRADING_BOT_REQUIRE_SCAN_AUTH"), True)
         if not require_auth:
             return True, ""
 
-        secret = str(
-            os.getenv("TRADING_BOT_SCAN_TOKEN", "") or os.getenv("CRON_SECRET", "")
-        ).strip()
+        secret, missing_hint = self._resolve_auth_secret(path)
         if not secret:
             return False, (
                 "Auth is required but no secret is configured. "
-                "Set TRADING_BOT_SCAN_TOKEN (or CRON_SECRET)."
+                f"Set {missing_hint}."
             )
 
         header_value = str(self.headers.get("Authorization", "")).strip()
@@ -281,7 +291,7 @@ class handler(BaseHTTPRequestHandler):
         <h1 style="margin:0 0 6px 0;">Bobyt Trading Dashboard</h1>
         <div class="muted">Frontend monitors backend snapshots. Trading/scans run only from protected backend endpoint.</div>
         <div class="controls">
-          <input id="token" type="password" placeholder="Bearer token (TRADING_BOT_SCAN_TOKEN)" autocomplete="off" />
+          <input id="token" type="password" placeholder="Bearer token (TRADING_BOT_STATUS_TOKEN)" autocomplete="off" />
           <input id="refresh" type="number" min="15" value="60" />
           <button id="refreshBtn">Refresh Now</button>
         </div>
@@ -562,7 +572,7 @@ class handler(BaseHTTPRequestHandler):
             )
             return
 
-        allowed, auth_error = self._is_authorized(query)
+        allowed, auth_error = self._is_authorized(path)
         if not allowed:
             self._write_json(
                 {
@@ -571,6 +581,17 @@ class handler(BaseHTTPRequestHandler):
                     "error": auth_error,
                 },
                 status_code=401,
+            )
+            return
+
+        if path in {"/api", "/api/scan"} and self.command != "POST":
+            self._write_json(
+                {
+                    "ok": False,
+                    "time": now_utc_str(),
+                    "error": "Method not allowed for scan endpoint. Use POST /api/scan.",
+                },
+                status_code=405,
             )
             return
 
@@ -695,15 +716,14 @@ class handler(BaseHTTPRequestHandler):
 
             self._write_json(payload, status_code=200)
         except Exception as e:
-            self._write_json(
-                {
-                    "ok": False,
-                    "time": now_utc_str(),
-                    "error": str(e),
-                    "trace": traceback.format_exc(limit=3),
-                },
-                status_code=500,
-            )
+            payload: Dict[str, Any] = {
+                "ok": False,
+                "time": now_utc_str(),
+                "error": str(e),
+            }
+            if parse_env_bool(os.getenv("TRADING_BOT_DEBUG_API"), False):
+                payload["trace"] = traceback.format_exc(limit=3)
+            self._write_json(payload, status_code=500)
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self._set_headers(status_code=200)

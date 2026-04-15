@@ -177,7 +177,8 @@ Only if you intentionally disable that protection should you set:
 | Variable | Purpose |
 |---|---|
 | `TRADING_BOT_REQUIRE_SCAN_AUTH=true` | Protect `/api/scan` and `/api/status` |
-| `TRADING_BOT_SCAN_TOKEN=<secret>` | API auth token (`Authorization: Bearer <token>`) |
+| `TRADING_BOT_SCAN_TOKEN=<secret>` | `/api/scan` execution token (`Authorization: Bearer <token>`) |
+| `TRADING_BOT_STATUS_TOKEN=<secret>` | Optional read-only token for `/api/status` (recommended to keep separate) |
 | `TRADING_BOT_ALLOW_LIVE_ON_VERCEL` | `true` only if you intentionally allow live orders on Vercel |
 
 ### Neon/PostgreSQL state backend
@@ -217,7 +218,7 @@ Use URL:
 https://<your-app>.vercel.app/api/scan?config=configs/config.json
 ```
 
-Set HTTP header in cron-job.org:
+Set request method to `POST` and add HTTP header in cron-job.org:
 
 ```text
 Authorization: Bearer <TRADING_BOT_SCAN_TOKEN>
@@ -226,10 +227,10 @@ Authorization: Bearer <TRADING_BOT_SCAN_TOKEN>
 Recommended schedule: match cron interval to your strategy candle interval.  
 Current `configs/config.json` uses `5m`, so run cron every 5 minutes.
 
-### Manual API test
+### Manual API test (`/api/scan` is POST-only)
 
 ```bash
-curl -sS "https://<your-app>.vercel.app/api/scan?config=configs/config.json" \
+curl -sS -X POST "https://<your-app>.vercel.app/api/scan?config=configs/config.json" \
   -H "Authorization: Bearer <TRADING_BOT_SCAN_TOKEN>"
 ```
 

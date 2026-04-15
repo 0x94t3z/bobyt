@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import math
 import os
 import ssl
 import urllib.parse
@@ -36,8 +37,9 @@ def _save_json_file(path: str, payload: Any) -> None:
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
+    sanitized = _sanitize_for_strict_json(payload)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
+        json.dump(sanitized, f, indent=2, allow_nan=False)
 
 
 def _sanitize_identifier(raw: str, fallback: str) -> str:
@@ -60,6 +62,22 @@ def _slug(text: str, max_len: int = 48) -> str:
     if not out:
         out = "default"
     return out[:max_len]
+
+
+def _sanitize_for_strict_json(value: Any) -> Any:
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        if value > 0:
+            return "INF"
+        if value < 0:
+            return "-INF"
+        return "NaN"
+    if isinstance(value, dict):
+        return {k: _sanitize_for_strict_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_strict_json(v) for v in value]
+    return value
 
 
 def get_database_url() -> str:
@@ -204,7 +222,8 @@ def _save_to_postgres(path: str, payload: Any, purpose: str) -> None:
     conn = _postgres_connect()
     try:
         _ensure_postgres_table(conn, table)
-        payload_text = json.dumps(payload, separators=(",", ":"))
+        sanitized = _sanitize_for_strict_json(payload)
+        payload_text = json.dumps(sanitized, separators=(",", ":"), allow_nan=False)
         cur = conn.cursor()
         try:
             cur.execute(

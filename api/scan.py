@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Dict, List
+import math
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -70,6 +71,23 @@ def compact_results(results: List[Dict[str, Any]], limit: int = 10) -> List[Dict
     return compact
 
 
+def sanitize_for_strict_json(value: Any) -> Any:
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        # Encode non-finite values as strings to preserve meaning in strict JSON.
+        if value > 0:
+            return "INF"
+        if value < 0:
+            return "-INF"
+        return "NaN"
+    if isinstance(value, dict):
+        return {k: sanitize_for_strict_json(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [sanitize_for_strict_json(v) for v in value]
+    return value
+
+
 def query_flag(query: Dict[str, List[str]], key: str, default: bool = False) -> bool:
     values = query.get(key, [])
     if not values:
@@ -122,7 +140,9 @@ class handler(BaseHTTPRequestHandler):
 
     def _write_json(self, payload: Dict[str, Any], status_code: int = 200) -> None:
         self._set_headers(status_code=status_code, content_type="application/json")
-        self.wfile.write(json.dumps(payload).encode("utf-8"))
+        # Enforce strict JSON (no NaN/Infinity) to keep browser JSON.parse reliable.
+        sanitized = sanitize_for_strict_json(payload)
+        self.wfile.write(json.dumps(sanitized, allow_nan=False).encode("utf-8"))
 
     def _write_html(self, payload: str, status_code: int = 200) -> None:
         self._set_headers(status_code=status_code, content_type="text/html; charset=utf-8")
@@ -279,6 +299,20 @@ class handler(BaseHTTPRequestHandler):
       </div>
 
       <div class="box">
+        <h3>Performance</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Window</th><th>Trades</th><th>Win Rate</th><th>Net PnL (USDT)</th><th>Profit Factor</th><th>Max Drawdown</th><th>Expectancy</th>
+            </tr>
+          </thead>
+          <tbody id="perfRows">
+            <tr><td colspan="7" class="muted">No performance data yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="box">
         <h3>Top Results</h3>
         <table>
           <thead>
@@ -357,6 +391,59 @@ class handler(BaseHTTPRequestHandler):
         return { Authorization: "Bearer " + token };
       }
 
+      function num(v, fallback = 0) {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : fallback;
+      }
+
+      function fmtPct(v) {
+        return num(v).toFixed(2) + "%";
+      }
+
+      function fmtUsdt(v) {
+        return num(v).toFixed(2);
+      }
+
+      function fmtPf(v) {
+        const txt = String(v ?? "").trim().toUpperCase();
+        if (txt === "INF" || txt === "+INF" || txt === "INFINITY" || txt === "+INFINITY") return "INF";
+        if (txt === "-INF" || txt === "-INFINITY") return "-INF";
+        const raw = Number(v);
+        if (!Number.isFinite(raw)) return "0.00";
+        return raw.toFixed(2);
+      }
+
+      function renderPerformanceRows(perf) {
+        const tbody = $("perfRows");
+        const overall = (perf && perf.overall) || {};
+        const last7d = (perf && perf.last_7d) || {};
+
+        const totalOverall = num(overall.total_trades);
+        const total7d = num(last7d.total_trades);
+        if (totalOverall <= 0 && total7d <= 0) {
+          setPlaceholderRow(tbody, 7, "No performance data yet.");
+          return;
+        }
+
+        tbody.replaceChildren();
+        const rows = [
+          { label: "Overall", data: overall },
+          { label: "Last 7 Days", data: last7d },
+        ];
+        rows.forEach((row) => {
+          const d = row.data || {};
+          const tr = document.createElement("tr");
+          appendCell(tr, row.label);
+          appendCell(tr, d.total_trades);
+          appendCell(tr, fmtPct(d.win_rate_pct));
+          appendCell(tr, fmtUsdt(d.net_pnl_usdt), num(d.net_pnl_usdt) >= 0 ? "ok" : "err");
+          appendCell(tr, fmtPf(d.profit_factor));
+          appendCell(tr, fmtUsdt(d.max_drawdown_usdt));
+          appendCell(tr, fmtUsdt(d.expectancy_usdt));
+          tbody.appendChild(tr);
+        });
+      }
+
       function renderTopRows(rows) {
         const tbody = $("rows");
         if (!rows.length) {
@@ -420,6 +507,7 @@ class handler(BaseHTTPRequestHandler):
             $("m_pending").textContent = "-";
             $("m_err").textContent = "-";
             $("m_exec").textContent = "-";
+            setPlaceholderRow($("perfRows"), 7, "No performance data yet.");
             setPlaceholderRow($("rows"), 8, "No backend snapshot yet. Trigger /api/scan from cron first.");
             setPlaceholderRow($("execRows"), 5, "No execution events yet.");
             statusEl.textContent = "No backend snapshot yet. Run /api/scan (cron/manual) first.";
@@ -433,6 +521,7 @@ class handler(BaseHTTPRequestHandler):
           $("m_err").textContent = text(data.summary?.errors);
           $("m_exec").textContent = text((data.execution_mode || "").toUpperCase());
 
+          renderPerformanceRows(data.performance || {});
           renderTopRows(data.top_results || []);
           renderExecutionRows(data.execution_events || []);
             statusEl.textContent =

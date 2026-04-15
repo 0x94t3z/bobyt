@@ -20,8 +20,8 @@
   "spot_discovery": {
     "enabled": true,
     "add_count": 10,
-    "min_turnover_usdt": 10000000,
-    "min_price_change_pct": 0.02,
+    "min_turnover_usdt": 3000000,
+    "min_price_change_pct": 0.01,
     "fallback_to_best": true,
     "exclude_symbols": []
   },
@@ -35,7 +35,7 @@
     "ema_fast": 5,
     "ema_slow": 13,
     "rsi_period": 14,
-    "rsi_buy_min": 40,
+    "rsi_buy_min": 35,
     "rsi_buy_max": 82,
     "rsi_sell": 85,
     "limit_pullback_pct": 0.1,

@@ -32,6 +32,7 @@ from .bybit_client import (
     extract_bybit_order_id as client_extract_bybit_order_id,
     fetch_bybit_instrument_constraints as client_fetch_bybit_instrument_constraints,
     fetch_bybit_live_position_for_symbol as client_fetch_bybit_live_position_for_symbol,
+    fetch_bybit_order_history_for_symbol as client_fetch_bybit_order_history_for_symbol,
     fetch_bybit_open_orders_for_symbol as client_fetch_bybit_open_orders_for_symbol,
     fetch_bybit_tickers as client_fetch_bybit_tickers,
     get_bybit_base_urls as client_get_bybit_base_urls,
@@ -1069,6 +1070,30 @@ def fetch_bybit_open_orders_for_symbol(
     )
 
 
+def fetch_bybit_order_history_for_symbol(
+    base_urls: List[str],
+    api_key: str,
+    api_secret: str,
+    recv_window: int,
+    category: str,
+    symbol: str,
+    limit: int = 50,
+    order_id: str = "",
+    order_link_id: str = "",
+) -> List[Dict[str, Any]]:
+    return client_fetch_bybit_order_history_for_symbol(
+        base_urls=base_urls,
+        api_key=api_key,
+        api_secret=api_secret,
+        recv_window=recv_window,
+        category=category,
+        symbol=symbol,
+        limit=limit,
+        order_id=order_id,
+        order_link_id=order_link_id,
+    )
+
+
 def fetch_bybit_live_position_for_symbol(
     base_urls: List[str],
     api_key: str,
@@ -1085,6 +1110,51 @@ def fetch_bybit_live_position_for_symbol(
         category=category,
         symbol=symbol,
     )
+
+
+def find_matching_order_history_row(
+    rows: List[Dict[str, Any]],
+    order_id: str = "",
+    order_link_id: str = "",
+) -> Dict[str, Any]:
+    order_id = str(order_id or "").strip()
+    order_link_id = str(order_link_id or "").strip()
+    if not rows:
+        return {}
+    if order_id:
+        for row in rows:
+            if str(row.get("orderId", "")).strip() == order_id:
+                return row
+    if order_link_id:
+        for row in rows:
+            if str(row.get("orderLinkId", "")).strip() == order_link_id:
+                return row
+    for row in rows:
+        if str(row.get("side", "")).upper() == "BUY" and is_bot_owned_marker(row):
+            return row
+    return rows[0]
+
+
+def get_bybit_order_filled_qty(order_row: Dict[str, Any]) -> float:
+    filled = abs(to_float(order_row.get("cumExecQty"), 0.0))
+    if filled > 0:
+        return filled
+    return abs(to_float(order_row.get("cumExecQuantity"), 0.0))
+
+
+def get_bybit_order_fill_price(order_row: Dict[str, Any], fallback_price: float = 0.0) -> float:
+    avg_price = to_float(order_row.get("avgPrice"), 0.0)
+    if avg_price > 0:
+        return avg_price
+    filled_qty = get_bybit_order_filled_qty(order_row)
+    if filled_qty > 0:
+        cum_exec_value = to_float(order_row.get("cumExecValue"), 0.0)
+        if cum_exec_value > 0:
+            return cum_exec_value / filled_qty
+    candidate = to_float(order_row.get("price"), 0.0)
+    if candidate > 0:
+        return candidate
+    return fallback_price
 
 
 def fetch_bybit_live_equity_usdt(
@@ -2426,6 +2496,53 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                     # Detect exchange-side close (e.g., native TP/SL filled) and persist journal/performance.
                     prior_live_pos = live_open_positions_state.get(symbol)
                     prior_hint = spot_entry_hints.get(symbol)
+                    if isinstance(prior_hint, dict) and is_bot_owned_marker(prior_hint):
+                        hint_status = str(prior_hint.get("status", "")).upper()
+                        if hint_status != "FILLED":
+                            order_id = str(prior_hint.get("order_id", "")).strip()
+                            order_link_id = str(prior_hint.get("order_link_id", "")).strip()
+                            history_rows: List[Dict[str, Any]] = []
+                            try:
+                                history_rows = fetch_bybit_order_history_for_symbol(
+                                    base_urls=base_urls,
+                                    api_key=bybit_key,
+                                    api_secret=bybit_secret,
+                                    recv_window=bybit_recv_window,
+                                    category="spot",
+                                    symbol=symbol,
+                                    limit=20,
+                                    order_id=order_id,
+                                    order_link_id=order_link_id,
+                                )
+                            except Exception as e:
+                                live_sync_errors[symbol] = f"spot history sync failed: {e}"
+                                cycle_errors.append(f"[LIVE_SYNC:{symbol}] Spot history error: {e}")
+                            history_row = find_matching_order_history_row(
+                                rows=history_rows,
+                                order_id=order_id,
+                                order_link_id=order_link_id,
+                            )
+                            if history_row:
+                                history_status = str(history_row.get("orderStatus", "")).upper()
+                                filled_qty = get_bybit_order_filled_qty(history_row)
+                                if filled_qty > 0:
+                                    prior_hint["status"] = "FILLED"
+                                    prior_hint["filled_at"] = now_utc_str()
+                                    prior_hint["qty"] = filled_qty
+                                    prior_hint["history_status"] = history_status
+                                    fill_price = get_bybit_order_fill_price(
+                                        history_row,
+                                        fallback_price=to_float(prior_hint.get("entry"), 0.0),
+                                    )
+                                    if fill_price <= 0:
+                                        fill_price = to_float(prior_hint.get("price"), 0.0)
+                                    if fill_price > 0:
+                                        prior_hint["entry"] = fill_price
+                                        prior_hint["price"] = fill_price
+                                elif history_status in {"CANCELLED", "CANCELED", "REJECTED", "DEACTIVATED"}:
+                                    prior_hint["status"] = history_status
+                                    prior_hint["history_status"] = history_status
+
                     close_marker: Dict[str, Any] = {}
                     if isinstance(prior_live_pos, dict) and is_bot_owned_marker(prior_live_pos):
                         close_marker = prior_live_pos

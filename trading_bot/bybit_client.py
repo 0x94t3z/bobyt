@@ -329,6 +329,42 @@ def fetch_bybit_open_orders_for_symbol(
     return [row for row in rows if is_active_open_order_status(row.get("orderStatus", ""))]
 
 
+def fetch_bybit_order_history_for_symbol(
+    base_urls: List[str],
+    api_key: str,
+    api_secret: str,
+    recv_window: int,
+    category: str,
+    symbol: str,
+    limit: int = 50,
+    order_id: str = "",
+    order_link_id: str = "",
+) -> List[Dict[str, Any]]:
+    params: Dict[str, Any] = {
+        "category": category,
+        "symbol": symbol,
+        "limit": max(1, min(int(limit), 50)),
+    }
+    if order_id:
+        params["orderId"] = order_id
+    if order_link_id:
+        params["orderLinkId"] = order_link_id
+    payload = bybit_signed_get_with_fallback(
+        base_urls=base_urls,
+        path="/v5/order/history",
+        params=params,
+        api_key=api_key,
+        api_secret=api_secret,
+        recv_window=recv_window,
+    )
+    if payload.get("retCode") != 0:
+        raise ValueError(
+            f"Bybit order history error for {symbol}: retCode={payload.get('retCode')} "
+            f"retMsg={payload.get('retMsg')}"
+        )
+    return payload.get("result", {}).get("list", []) or []
+
+
 def fetch_bybit_live_position_for_symbol(
     base_urls: List[str],
     api_key: str,

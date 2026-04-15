@@ -1132,7 +1132,7 @@ def find_matching_order_history_row(
     for row in rows:
         if str(row.get("side", "")).upper() == "BUY" and is_bot_owned_marker(row):
             return row
-    return rows[0]
+    return {}
 
 
 def get_bybit_order_filled_qty(order_row: Dict[str, Any]) -> float:
@@ -2348,6 +2348,8 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
             live_sync_errors["*"] = issue
         else:
             spot_coin_balances: Dict[str, Dict[str, float]] = {}
+            spot_wallet_sync_ok = True
+            spot_wallet_sync_error = ""
             if any(
                 normalize_bybit_category(job.get("category", ""), fallback=default_bybit_category) == "spot"
                 for job in symbol_jobs
@@ -2360,6 +2362,8 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                         recv_window=recv_window,
                     )
                 except Exception as e:
+                    spot_wallet_sync_ok = False
+                    spot_wallet_sync_error = str(e)
                     cycle_errors.append(f"[LIVE_SYNC:SPOT] Wallet error: {e}")
 
             synced_pairs: set[str] = set()
@@ -2451,6 +2455,12 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                         "updated_at": now_utc_str(),
                     }
 
+                if not spot_wallet_sync_ok:
+                    live_sync_errors[symbol] = f"spot wallet sync unavailable: {spot_wallet_sync_error}"
+                    # Without wallet balances we cannot infer held qty safely.
+                    # Keep prior state untouched and retry on next cycle.
+                    continue
+
                 base_asset = split_symbol_base_quote(symbol).get("base", "")
                 coin_row = spot_coin_balances.get(base_asset, {})
                 wallet_qty = to_float(coin_row.get("wallet"), 0.0)
@@ -2505,9 +2515,9 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                             try:
                                 history_rows = fetch_bybit_order_history_for_symbol(
                                     base_urls=base_urls,
-                                    api_key=bybit_key,
-                                    api_secret=bybit_secret,
-                                    recv_window=bybit_recv_window,
+                                    api_key=api_key,
+                                    api_secret=api_secret,
+                                    recv_window=recv_window,
                                     category="spot",
                                     symbol=symbol,
                                     limit=20,

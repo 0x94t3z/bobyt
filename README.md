@@ -12,12 +12,12 @@ It can:
 
 ```mermaid
 flowchart LR
-  A[cron-job.org / Manual Trigger] --> B[/api/scan.py on Vercel]
-  B --> C[trading_bot.bot.scan_once]
-  C --> D[Bybit Market Data API]
-  C --> E[Bybit Order API]
-  C --> F[State File]
-  G[Streamlit UI] --> C
+  A["cron-job.org / Manual Trigger"] --> B["/api/scan.py on Vercel"]
+  B --> C["trading_bot.bot.scan_once"]
+  C --> D["Bybit Market Data API"]
+  C --> E["Bybit Order API"]
+  C --> F["State File"]
+  G["Streamlit UI"] --> C
 ```
 
 Runtime behavior:

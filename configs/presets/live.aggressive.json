@@ -19,7 +19,7 @@
   ],
   "spot_discovery": {
     "enabled": true,
-    "add_count": 2,
+    "add_count": 10,
     "min_turnover_usdt": 10000000,
     "min_price_change_pct": 0.02,
     "fallback_to_best": true,

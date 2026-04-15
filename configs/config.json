@@ -7,7 +7,7 @@
     ],
     "category": "spot"
   },
-  "interval": "5m",
+  "interval": "15m",
   "lookback": 220,
   "scan_every_seconds": 60,
   "state_file": "state/bot_state.json",

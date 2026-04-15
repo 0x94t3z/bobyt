@@ -2417,7 +2417,89 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                         spot_entry_hints[symbol]["status"] = "FILLED"
                         spot_entry_hints[symbol]["filled_at"] = now_utc_str()
                 elif symbol not in live_synced_pending_entries:
-                    if is_bot_owned_marker(spot_entry_hints.get(symbol)):
+                    # Detect exchange-side close (e.g., native TP/SL filled) and persist journal/performance.
+                    prior_live_pos = live_open_positions_state.get(symbol)
+                    prior_hint = spot_entry_hints.get(symbol)
+                    close_marker: Dict[str, Any] = {}
+                    if isinstance(prior_live_pos, dict) and is_bot_owned_marker(prior_live_pos):
+                        close_marker = prior_live_pos
+                    elif isinstance(prior_hint, dict) and is_bot_owned_marker(prior_hint):
+                        if str(prior_hint.get("status", "")).upper() == "FILLED":
+                            close_marker = prior_hint
+
+                    if close_marker:
+                        entry_price = to_float(close_marker.get("entry"), 0.0)
+                        if entry_price <= 0:
+                            entry_price = to_float(close_marker.get("price"), 0.0)
+                        closed_qty = to_float(close_marker.get("qty"), 0.0)
+                        if entry_price > 0 and closed_qty > 0:
+                            ticker_row = ticker_maps.get("spot", {}).get(symbol, {})
+                            exit_price = to_float(ticker_row.get("lastPrice"), 0.0)
+                            if exit_price <= 0:
+                                exit_price = entry_price
+                            pnl = compute_trade_pnl_usdt(
+                                entry_price=entry_price,
+                                exit_price=exit_price,
+                                qty=closed_qty,
+                                costs_cfg=costs_cfg,
+                            )
+                            risk_state["daily_realized_pnl_usdt"] = to_float(
+                                risk_state.get("daily_realized_pnl_usdt"), 0.0
+                            ) + pnl
+                            if pnl < 0:
+                                risk_state["consecutive_losses"] = int(
+                                    risk_state.get("consecutive_losses", 0)
+                                ) + 1
+                                cooldown_minutes = int(risk_cfg.get("cooldown_minutes_after_loss", 0))
+                                if cooldown_minutes > 0:
+                                    risk_state["cooldown_until_ts"] = time.time() + (cooldown_minutes * 60)
+                                    risk_state["cooldown_reason"] = (
+                                        f"Loss cooldown ({cooldown_minutes}m) after {symbol}"
+                                    )
+                            elif pnl > 0:
+                                risk_state["consecutive_losses"] = 0
+
+                            cycle_alerts.append(
+                                f"CLOSED {symbol} (LIVE_SYNC) | PnL {pnl:.2f} USDT | "
+                                f"Daily PnL {risk_state['daily_realized_pnl_usdt']:.2f} USDT"
+                            )
+                            closed_at = now_utc_str()
+                            closed_at_ts = now_utc_ts()
+                            add_closed_trade_to_history(
+                                config=config,
+                                state=state,
+                                trade={
+                                    "symbol": symbol,
+                                    "source": str(close_marker.get("source", "LIVE_SYNC_SPOT")),
+                                    "opened_at": str(close_marker.get("opened_at", "")),
+                                    "closed_at": closed_at,
+                                    "closed_at_ts": closed_at_ts,
+                                    "entry_price": entry_price,
+                                    "exit_price": exit_price,
+                                    "qty": closed_qty,
+                                    "pnl_usdt": pnl,
+                                    "net_return_pct": compute_net_return_pct(
+                                        entry_price=entry_price,
+                                        exit_price=exit_price,
+                                        costs_cfg=costs_cfg,
+                                    ),
+                                    "exit_signal": "LIVE_SYNC_EXIT",
+                                    "costs": {
+                                        "entry_fee_pct": to_float(costs_cfg.get("entry_fee_pct"), 0.0),
+                                        "exit_fee_pct": to_float(costs_cfg.get("exit_fee_pct"), 0.0),
+                                        "entry_slippage_pct": to_float(costs_cfg.get("entry_slippage_pct"), 0.0),
+                                        "exit_slippage_pct": to_float(costs_cfg.get("exit_slippage_pct"), 0.0),
+                                    },
+                                },
+                            )
+                            update_circuit_breaker_status(
+                                config=config,
+                                state=state,
+                                live_equity_override_usdt=live_equity_override_usdt,
+                            )
+                        positions.pop(symbol, None)
+                        spot_entry_hints.pop(symbol, None)
+                    elif is_bot_owned_marker(spot_entry_hints.get(symbol)):
                         spot_entry_hints.pop(symbol, None)
 
         state["live_open_positions"] = live_synced_positions

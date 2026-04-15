@@ -64,9 +64,9 @@ def compact_results(results: List[Dict[str, Any]], limit: int = 10) -> List[Dict
 
 
 class handler(BaseHTTPRequestHandler):
-    def _set_headers(self, status_code: int = 200) -> None:
+    def _set_headers(self, status_code: int = 200, content_type: str = "application/json") -> None:
         self.send_response(status_code)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -74,8 +74,12 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def _write_json(self, payload: Dict[str, Any], status_code: int = 200) -> None:
-        self._set_headers(status_code=status_code)
+        self._set_headers(status_code=status_code, content_type="application/json")
         self.wfile.write(json.dumps(payload).encode("utf-8"))
+
+    def _write_html(self, payload: str, status_code: int = 200) -> None:
+        self._set_headers(status_code=status_code, content_type="text/html; charset=utf-8")
+        self.wfile.write(payload.encode("utf-8"))
 
     def _is_authorized(self, query: Dict[str, List[str]]) -> tuple[bool, str]:
         require_auth = parse_env_bool(os.getenv("TRADING_BOT_REQUIRE_SCAN_AUTH"), True)
@@ -104,7 +108,51 @@ class handler(BaseHTTPRequestHandler):
 
     def _run_scan(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
+        path = (parsed.path or "/").rstrip("/") or "/"
         query = urllib.parse.parse_qs(parsed.query)
+
+        if path == "/":
+            self._write_html(
+                """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Bobyt Trading Bot API</title>
+    <style>
+      body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #060b16; color: #e9efff; margin: 0; }
+      .wrap { max-width: 760px; margin: 48px auto; padding: 0 20px; }
+      .card { background: #0f182c; border: 1px solid #243659; border-radius: 12px; padding: 20px; }
+      code { background: #0b1324; border: 1px solid #22355b; padding: 2px 6px; border-radius: 6px; color: #9dd3ff; }
+      a { color: #7eb7ff; }
+      p { color: #b8c6e6; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>Bobyt Trading Bot API</h1>
+        <p>Service is online. Scan endpoint is protected.</p>
+        <p>Use: <code>/api/scan?config=configs/config.json&amp;token=YOUR_TOKEN</code></p>
+      </div>
+    </div>
+  </body>
+</html>""",
+                status_code=200,
+            )
+            return
+
+        if path not in {"/api", "/api/scan"}:
+            self._write_json(
+                {
+                    "ok": False,
+                    "time": now_utc_str(),
+                    "error": "Not found",
+                    "path": path,
+                },
+                status_code=404,
+            )
+            return
 
         allowed, auth_error = self._is_authorized(query)
         if not allowed:

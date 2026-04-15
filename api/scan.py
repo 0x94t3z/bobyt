@@ -171,7 +171,7 @@ class handler(BaseHTTPRequestHandler):
       .muted { color: var(--sub); }
       .controls {
         display: grid;
-        grid-template-columns: 2fr 2fr 1fr 1fr;
+        grid-template-columns: 2fr 1fr;
         gap: 10px;
         margin-top: 12px;
       }
@@ -240,9 +240,8 @@ class handler(BaseHTTPRequestHandler):
     <div class="wrap">
       <div class="hero">
         <h1 style="margin:0 0 6px 0;">Bobyt Trading Dashboard</h1>
-        <div class="muted">Frontend monitors backend snapshots. Trading/scans run only from backend endpoint.</div>
+        <div class="muted">Frontend monitors backend snapshots (public). Trading/scans run only from protected backend endpoint.</div>
         <div class="controls">
-          <input id="token" placeholder="TRADING_BOT_SCAN_TOKEN" />
           <input id="refresh" type="number" min="15" value="60" />
           <button id="refreshBtn">Refresh Now</button>
         </div>
@@ -290,10 +289,7 @@ class handler(BaseHTTPRequestHandler):
       }
 
       async function fetchStatus() {
-        const token = $("token").value.trim();
-        const qs = new URLSearchParams({});
-        if (token) qs.set("token", token);
-        const url = "/api/status?" + qs.toString();
+        const url = "/api/status";
 
         statusEl.textContent = "Refreshing monitoring data...";
         try {
@@ -372,18 +368,6 @@ class handler(BaseHTTPRequestHandler):
             )
             return
 
-        allowed, auth_error = self._is_authorized(query)
-        if not allowed:
-            self._write_json(
-                {
-                    "ok": False,
-                    "time": now_utc_str(),
-                    "error": auth_error,
-                },
-                status_code=401,
-            )
-            return
-
         if path == "/api/status":
             status_file = resolve_status_file()
             snapshot = load_json_file(status_file, None)
@@ -403,6 +387,18 @@ class handler(BaseHTTPRequestHandler):
             payload["ok"] = True
             payload["has_data"] = True
             self._write_json(payload, status_code=200)
+            return
+
+        allowed, auth_error = self._is_authorized(query)
+        if not allowed:
+            self._write_json(
+                {
+                    "ok": False,
+                    "time": now_utc_str(),
+                    "error": auth_error,
+                },
+                status_code=401,
+            )
             return
 
         config_arg = str(query.get("config", [DEFAULT_CONFIG_PATH])[0])

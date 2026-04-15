@@ -1,0 +1,10 @@
+.env
+.streamlit/secrets.toml
+.vercel/
+__pycache__/
+.pycache/
+*.pyc
+runtime_logs/
+state/bot_state.json
+state/*.log
+paper.log

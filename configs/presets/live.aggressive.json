@@ -1,0 +1,85 @@
+{
+  "exchange": {
+    "name": "bybit",
+    "base_url": "https://api.bytick.com",
+    "backup_base_urls": [
+      "https://api.bybit.com"
+    ],
+    "category": "linear"
+  },
+  "interval": "15m",
+  "lookback": 220,
+  "scan_every_seconds": 60,
+  "state_file": "state/bot_state.json",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "DEGENUSDT",
+    "BASEDUSDT"
+  ],
+  "spot_discovery": {
+    "enabled": true,
+    "add_count": 2,
+    "min_turnover_usdt": 10000000,
+    "min_price_change_pct": 0.02,
+    "fallback_to_best": true,
+    "exclude_symbols": []
+  },
+  "strategy": {
+    "ema_fast": 5,
+    "ema_slow": 13,
+    "rsi_period": 14,
+    "rsi_buy_min": 40,
+    "rsi_buy_max": 82,
+    "rsi_sell": 85,
+    "limit_pullback_pct": 0.1,
+    "take_profit_pct": 2.4,
+    "stop_loss_pct": 1.4
+  },
+  "risk": {
+    "open_on_buy_signal": true,
+    "account_equity_usdt": 300,
+    "risk_per_trade_pct": 0.8,
+    "max_position_notional_usdt": 40,
+    "max_daily_loss_pct": 3.0,
+    "max_consecutive_losses": 3,
+    "max_open_positions": 2,
+    "cooldown_minutes_after_loss": 20,
+    "pause_on_limit": true
+  },
+  "execution_costs": {
+    "entry_fee_pct": 0.1,
+    "exit_fee_pct": 0.1,
+    "entry_slippage_pct": 0.05,
+    "exit_slippage_pct": 0.05
+  },
+  "liquidity_filter": {
+    "enabled": true,
+    "max_spread_pct": 0.4,
+    "min_turnover_24h_usdt": 500000,
+    "block_when_ticker_missing": true
+  },
+  "journal": {
+    "enabled": true,
+    "max_closed_trades": 5000
+  },
+  "execution": {
+    "mode": "live",
+    "assume_filled_on_submit": false,
+    "recv_window_ms": 5000,
+    "live_safety": {
+      "require_manual_unlock": true,
+      "required_ack_phrase": "I_UNDERSTAND_LIVE_TRADING_RISK",
+      "require_mainnet_flag": true
+    },
+    "bybit": {
+      "api_key": "",
+      "api_secret": ""
+    }
+  },
+  "notifications": {
+    "telegram_enabled": false,
+    "bot_token": "",
+    "chat_id": ""
+  }
+}

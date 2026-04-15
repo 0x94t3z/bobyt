@@ -85,11 +85,14 @@ def fetch_bybit_instrument_constraints(
     row = rows[0]
     lot = row.get("lotSizeFilter", {})
     price_filter = row.get("priceFilter", {})
+    status = str(row.get("status", "")).strip()
     return {
         "min_qty": to_float(lot.get("minOrderQty"), 0.0),
         "max_qty": to_float(lot.get("maxOrderQty"), 0.0),
         "qty_step": to_float(lot.get("qtyStep"), 0.0),
         "tick_size": to_float(price_filter.get("tickSize"), 0.0),
+        "status": status,
+        "tradable": status.upper() == "TRADING",
     }
 
 

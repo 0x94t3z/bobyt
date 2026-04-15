@@ -8,6 +8,8 @@ It can:
 - optionally execute live Bybit orders with safety locks
 - track state/journal/performance
 
+Live execution is enforced as Bybit **spot-only** (no derivatives/futures).
+
 ## Architecture
 
 ```mermaid

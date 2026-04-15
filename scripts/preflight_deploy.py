@@ -232,6 +232,10 @@ def main() -> int:
             warnings.append(
                 f"max_position_notional_usdt={max_notional:.2f} is high. Confirm this is intentional."
             )
+        if runtime_category != "spot":
+            failures.append(
+                "Live mode must use exchange.category='spot' (derivatives are disabled in this project)."
+            )
         if runtime_category == "spot" and runtime_assume_filled:
             failures.append(
                 "Spot live mode must set execution.assume_filled_on_submit=false "

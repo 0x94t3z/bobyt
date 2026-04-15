@@ -542,6 +542,16 @@ def round_price_to_tick(price: float, tick_size: float) -> float:
     return floor_to_step(price, tick_size)
 
 
+def format_order_qty(qty: float) -> str:
+    if qty <= 0:
+        return "0"
+    d_qty = Decimal(str(qty)).normalize()
+    text = format(d_qty, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
 def build_order_group_id(symbol: str, close_time: Any) -> str:
     raw = f"{str(symbol).upper()}:{str(close_time)}"
     digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
@@ -832,7 +842,7 @@ def build_bybit_order_plan(
     category = normalize_bybit_category(category, fallback="")
     if category not in BYBIT_SUPPORTED_CATEGORIES:
         return None
-    qty_text = f"{qty:.6f}"
+    qty_text = format_order_qty(qty)
     entry_order: Dict[str, Any] = {
         "category": category,
         "symbol": symbol,
@@ -912,7 +922,7 @@ def build_bybit_spot_exit_order_plan(
         "symbol": symbol,
         "side": "Sell",
         "orderType": "Market",
-        "qty": f"{qty:.6f}",
+        "qty": format_order_qty(qty),
     }
     if order_group_id:
         exit_order["orderLinkId"] = build_order_link_id(order_group_id, "sx")
@@ -2033,6 +2043,22 @@ def enrich_result_with_risk_and_orders(
                 if result.get("source") == "SPOT_BEST"
                 else get_bybit_default_category(exchange_cfg)
             )
+        if category == "spot":
+            tradable = True
+            if isinstance(qty_constraints, dict):
+                tradable = bool(qty_constraints.get("tradable", True))
+            if not tradable:
+                status = str((qty_constraints or {}).get("status", "UNKNOWN"))
+                result["signal"] = None
+                result["action"] = "WAIT_LISTING"
+                result["message"] = ""
+                result["qty"] = None
+                result["risk_usdt"] = None
+                result["order_plan"] = None
+                result["note"] = (
+                    f"{result.get('note', '')} | Instrument status {status}; not tradable yet."
+                ).strip(" |")
+                return
         exec_cfg = config.get("execution", {})
         bybit_exec_cfg = exec_cfg.get("bybit", {})
         spot_native_tpsl_on_entry = bool(bybit_exec_cfg.get("spot_native_tpsl_on_entry", True))
@@ -3048,6 +3074,10 @@ def validate_config(config: Dict[str, Any]) -> None:
         raise ValueError("execution.mode='live' currently supports only exchange.name='bybit'")
     if mode == "live" and exchange_name == "bybit":
         bybit_category = get_bybit_default_category(config["exchange"])
+        if bybit_category != "spot":
+            raise ValueError(
+                "Live mode is spot-only in this project. Set exchange.category='spot'."
+            )
         if bybit_category == "spot" and bool(exec_cfg.get("assume_filled_on_submit", False)):
             raise ValueError(
                 "execution.assume_filled_on_submit must be false for Bybit spot live mode."

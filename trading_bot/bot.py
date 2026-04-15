@@ -551,10 +551,28 @@ def round_price_to_tick(price: float, tick_size: float) -> float:
     return floor_to_step(price, tick_size)
 
 
-def format_order_qty(qty: float) -> str:
+def _qty_decimals_from_step(step: float) -> int:
+    if step <= 0:
+        return 0
+    text = format(Decimal(str(step)).normalize(), "f")
+    if "." not in text:
+        return 0
+    return len(text.split(".", 1)[1].rstrip("0"))
+
+
+def format_order_qty(qty: float, qty_step: float = 0.0) -> str:
     if qty <= 0:
         return "0"
-    d_qty = Decimal(str(qty)).normalize()
+    d_qty = Decimal(str(qty))
+    if qty_step > 0:
+        d_step = Decimal(str(qty_step))
+        units = (d_qty / d_step).to_integral_value(rounding=ROUND_DOWN)
+        d_qty = units * d_step
+        step_decimals = _qty_decimals_from_step(qty_step)
+        if step_decimals > 0:
+            quantum = Decimal(1).scaleb(-step_decimals)
+            d_qty = d_qty.quantize(quantum, rounding=ROUND_DOWN)
+    d_qty = d_qty.normalize()
     text = format(d_qty, "f")
     if "." in text:
         text = text.rstrip("0").rstrip(".")
@@ -847,11 +865,12 @@ def build_bybit_order_plan(
     sl_price: float,
     order_group_id: str = "",
     spot_native_tpsl_on_entry: bool = True,
+    qty_step: float = 0.0,
 ) -> Optional[Dict[str, Any]]:
     category = normalize_bybit_category(category, fallback="")
     if category not in BYBIT_SUPPORTED_CATEGORIES:
         return None
-    qty_text = format_order_qty(qty)
+    qty_text = format_order_qty(qty, qty_step=qty_step)
     entry_order: Dict[str, Any] = {
         "category": category,
         "symbol": symbol,
@@ -923,15 +942,26 @@ def build_bybit_spot_exit_order_plan(
     symbol: str,
     qty: float,
     order_group_id: str = "",
+    qty_constraints: Optional[Dict[str, float]] = None,
 ) -> Optional[Dict[str, Any]]:
     if qty <= 0:
+        return None
+    qty_step = to_float((qty_constraints or {}).get("qty_step"), 0.0)
+    min_qty = to_float((qty_constraints or {}).get("min_qty"), 0.0)
+    max_qty = to_float((qty_constraints or {}).get("max_qty"), 0.0)
+    adjusted_qty = floor_to_step(qty, qty_step) if qty_step > 0 else qty
+    if max_qty > 0:
+        adjusted_qty = min(adjusted_qty, max_qty)
+    if adjusted_qty <= 0:
+        return None
+    if min_qty > 0 and adjusted_qty < min_qty:
         return None
     exit_order: Dict[str, Any] = {
         "category": "spot",
         "symbol": symbol,
         "side": "Sell",
         "orderType": "Market",
-        "qty": format_order_qty(qty),
+        "qty": format_order_qty(adjusted_qty, qty_step=qty_step),
     }
     if order_group_id:
         exit_order["orderLinkId"] = build_order_link_id(order_group_id, "sx")
@@ -2293,6 +2323,7 @@ def enrich_result_with_risk_and_orders(
             sl_price=sl,
             order_group_id=order_group_id,
             spot_native_tpsl_on_entry=spot_native_tpsl_on_entry,
+            qty_step=to_float((qty_constraints or {}).get("qty_step"), 0.0),
         )
 
 
@@ -3081,6 +3112,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                         if pos:
                             entry = to_float(pos.get("entry"), 0.0)
                             qty = to_float(pos.get("qty"), 0.0)
+                            close_qty = qty
                             if entry > 0 and qty > 0:
                                 exit_allowed = True
                                 exit_fill: Dict[str, Any] = {}
@@ -3100,20 +3132,40 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                     )
                                     continue
                                 if exec_mode == "live" and exchange_name == "bybit" and market_category == "spot":
+                                    qty_constraints = qty_constraints_map.get(f"spot:{symbol}", {})
                                     exit_plan = build_bybit_spot_exit_order_plan(
                                         symbol=symbol,
-                                        qty=qty,
+                                        qty=close_qty,
                                         order_group_id=build_order_group_id(
                                             symbol=symbol,
                                             close_time=result.get("close_time"),
                                         ),
+                                        qty_constraints=qty_constraints,
                                     )
                                     if not exit_plan:
+                                        qty_step = to_float((qty_constraints or {}).get("qty_step"), 0.0)
+                                        min_qty = to_float((qty_constraints or {}).get("min_qty"), 0.0)
+                                        max_qty = to_float((qty_constraints or {}).get("max_qty"), 0.0)
+                                        adjusted_qty = floor_to_step(close_qty, qty_step) if qty_step > 0 else close_qty
+                                        if max_qty > 0:
+                                            adjusted_qty = min(adjusted_qty, max_qty)
                                         exit_allowed = False
-                                        cycle_alerts.append(
-                                            f"EXIT BLOCKED {symbol} | Unable to build spot exit plan."
-                                        )
+                                        if min_qty > 0 and adjusted_qty < min_qty:
+                                            cycle_alerts.append(
+                                                f"EXIT BLOCKED {symbol} | Qty below min order after rounding "
+                                                f"({adjusted_qty:.8f} < {min_qty:.8f})."
+                                            )
+                                        else:
+                                            cycle_alerts.append(
+                                                f"EXIT BLOCKED {symbol} | Unable to build spot exit plan."
+                                            )
                                     else:
+                                        planned_exit_qty = to_float(
+                                            exit_plan.get("exit_order", {}).get("qty"),
+                                            close_qty,
+                                        )
+                                        if planned_exit_qty > 0:
+                                            close_qty = planned_exit_qty
                                         exec_result = execute_bybit_order_plan(
                                             config=config,
                                             exchange_cfg=exchange_cfg,
@@ -3193,7 +3245,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                 pnl = compute_trade_pnl_usdt(
                                     entry_price=entry,
                                     exit_price=exit_price,
-                                    qty=qty,
+                                    qty=close_qty,
                                     costs_cfg=costs_cfg,
                                 )
                                 risk_state["daily_realized_pnl_usdt"] = to_float(
@@ -3234,7 +3286,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         "closed_at_ts": closed_at_ts,
                                         "entry_price": entry,
                                         "exit_price": exit_price,
-                                        "qty": qty,
+                                        "qty": close_qty,
                                         "pnl_usdt": pnl,
                                         "net_return_pct": compute_net_return_pct(
                                             entry_price=entry,

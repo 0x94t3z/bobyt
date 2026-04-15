@@ -7,6 +7,7 @@ import json
 import math
 import os
 import ssl
+import time
 import urllib.parse
 from typing import Any, Dict, Optional
 
@@ -334,3 +335,147 @@ def save_closed_trade_record(path: str, trade: Dict[str, Any], purpose: str = "s
         return str(e)
     finally:
         conn.close()
+
+
+def _lock_storage_key(name: str) -> str:
+    normalized = str(name or "").strip().lower() or "scan"
+    slug = _slug(normalized, max_len=48)
+    return f"lock:{slug}"
+
+
+def _lock_file_path(path: str, name: str) -> str:
+    base = str(path or "").strip() or "state/bot_state.json"
+    return f"{base}.{_slug(name, max_len=24)}.lock"
+
+
+def _try_acquire_file_lock(path: str, name: str, owner: str, ttl_seconds: int) -> bool:
+    now_ts = time.time()
+    expires_at = now_ts + max(1, int(ttl_seconds))
+    lock_path = _lock_file_path(path=path, name=name)
+    parent = os.path.dirname(lock_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    payload = {"owner": owner, "expires_at_ts": expires_at, "created_at_ts": now_ts}
+
+    for _ in range(2):
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            try:
+                os.write(fd, json.dumps(payload, separators=(",", ":"), allow_nan=False).encode("utf-8"))
+            finally:
+                os.close(fd)
+            return True
+        except FileExistsError:
+            try:
+                with open(lock_path, "r", encoding="utf-8") as f:
+                    existing = json.load(f)
+            except Exception:
+                existing = {}
+            existing_expiry = _to_float((existing or {}).get("expires_at_ts"), 0.0)
+            if existing_expiry > now_ts:
+                return False
+            try:
+                os.remove(lock_path)
+            except OSError:
+                return False
+    return False
+
+
+def _release_file_lock(path: str, name: str, owner: str) -> bool:
+    lock_path = _lock_file_path(path=path, name=name)
+    try:
+        with open(lock_path, "r", encoding="utf-8") as f:
+            existing = json.load(f)
+    except FileNotFoundError:
+        return True
+    except Exception:
+        return False
+
+    existing_owner = str((existing or {}).get("owner", "")).strip()
+    if existing_owner and existing_owner != owner:
+        return False
+
+    try:
+        os.remove(lock_path)
+        return True
+    except OSError:
+        return False
+
+
+def _try_acquire_postgres_lock(path: str, name: str, owner: str, ttl_seconds: int) -> bool:
+    table = _postgres_table_name()
+    key = _lock_storage_key(name)
+    now_ts = time.time()
+    expires_at_ts = now_ts + max(1, int(ttl_seconds))
+    payload = {
+        "owner": owner,
+        "expires_at_ts": expires_at_ts,
+        "created_at_ts": now_ts,
+        "path": str(path or ""),
+    }
+    payload_text = json.dumps(payload, separators=(",", ":"), allow_nan=False)
+
+    conn = _postgres_connect()
+    try:
+        _ensure_postgres_table(conn, table)
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                f"""
+                INSERT INTO {table} (storage_key, payload, updated_at)
+                VALUES (%s, %s::jsonb, NOW())
+                ON CONFLICT (storage_key)
+                DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()
+                WHERE COALESCE(({table}.payload->>'expires_at_ts')::double precision, 0) <= %s
+                RETURNING storage_key
+                """,
+                (key, payload_text, now_ts),
+            )
+            row = cur.fetchone()
+            acquired = bool(row)
+        finally:
+            cur.close()
+        conn.commit()
+        return acquired
+    finally:
+        conn.close()
+
+
+def _release_postgres_lock(path: str, name: str, owner: str) -> bool:
+    table = _postgres_table_name()
+    key = _lock_storage_key(name)
+    conn = _postgres_connect()
+    try:
+        _ensure_postgres_table(conn, table)
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                f"""
+                DELETE FROM {table}
+                WHERE storage_key=%s
+                  AND COALESCE(payload->>'owner', '') = %s
+                """,
+                (key, owner),
+            )
+            removed = int(cur.rowcount or 0) > 0
+        finally:
+            cur.close()
+        conn.commit()
+        return removed
+    finally:
+        conn.close()
+
+
+def acquire_named_lock(path: str, name: str, owner: str, ttl_seconds: int = 180) -> bool:
+    backend = get_state_backend()
+    if backend == "postgres":
+        return _try_acquire_postgres_lock(path=path, name=name, owner=owner, ttl_seconds=ttl_seconds)
+    return _try_acquire_file_lock(path=path, name=name, owner=owner, ttl_seconds=ttl_seconds)
+
+
+def release_named_lock(path: str, name: str, owner: str) -> bool:
+    backend = get_state_backend()
+    if backend == "postgres":
+        return _release_postgres_lock(path=path, name=name, owner=owner)
+    return _release_file_lock(path=path, name=name, owner=owner)

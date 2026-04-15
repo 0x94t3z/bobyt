@@ -6,6 +6,7 @@ import os
 import sys
 import traceback
 import urllib.parse
+import uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -25,8 +26,10 @@ from trading_bot.bot import (  # noqa: E402
     validate_config,
 )
 from trading_bot.state_store import (  # noqa: E402
+    acquire_named_lock,
     describe_json_storage_backend,
     load_persisted_json,
+    release_named_lock,
     save_persisted_json,
 )
 
@@ -35,6 +38,10 @@ DEFAULT_CONFIG_PATH = "configs/config.json"
 ALLOWED_CONFIG_DIR = (ROOT_DIR / "configs").resolve()
 DEFAULT_STATUS_FILE = "state/last_scan_snapshot.json"
 DEFAULT_VERCEL_STATUS_FILE = "/tmp/trading_bot_last_scan_snapshot.json"
+DEFAULT_SCAN_LOCK_FILE = "state/scan_lock.json"
+DEFAULT_VERCEL_SCAN_LOCK_FILE = "/tmp/trading_bot_scan_lock.json"
+DEFAULT_SCAN_LOCK_NAME = "api_scan"
+DEFAULT_SCAN_LOCK_TTL_SECONDS = 180
 
 
 def now_utc_str() -> str:
@@ -106,6 +113,22 @@ def resolve_status_file() -> str:
     if override:
         return override
     return DEFAULT_VERCEL_STATUS_FILE if is_running_on_vercel() else DEFAULT_STATUS_FILE
+
+
+def resolve_scan_lock_file() -> str:
+    override = str(os.getenv("TRADING_BOT_SCAN_LOCK_FILE", "")).strip()
+    if override:
+        return override
+    return DEFAULT_VERCEL_SCAN_LOCK_FILE if is_running_on_vercel() else DEFAULT_SCAN_LOCK_FILE
+
+
+def resolve_scan_lock_ttl_seconds() -> int:
+    raw = str(os.getenv("TRADING_BOT_SCAN_LOCK_TTL_SECONDS", DEFAULT_SCAN_LOCK_TTL_SECONDS)).strip()
+    try:
+        ttl = int(raw)
+    except ValueError:
+        ttl = DEFAULT_SCAN_LOCK_TTL_SECONDS
+    return min(max(ttl, 30), 900)
 
 
 def extract_open_symbols(cycle: Dict[str, Any]) -> List[str]:
@@ -625,6 +648,30 @@ class handler(BaseHTTPRequestHandler):
 
         config_arg = str(query.get("config", [DEFAULT_CONFIG_PATH])[0])
         monitor_only = query_flag(query, "monitor", default=False)
+        lock_name = str(os.getenv("TRADING_BOT_SCAN_LOCK_NAME", DEFAULT_SCAN_LOCK_NAME)).strip() or DEFAULT_SCAN_LOCK_NAME
+        lock_owner = f"{os.getpid()}-{uuid.uuid4().hex[:12]}"
+        lock_path = resolve_scan_lock_file()
+        lock_ttl_seconds = resolve_scan_lock_ttl_seconds()
+        lock_acquired = acquire_named_lock(
+            path=lock_path,
+            name=lock_name,
+            owner=lock_owner,
+            ttl_seconds=lock_ttl_seconds,
+        )
+
+        if not lock_acquired:
+            self._write_json(
+                {
+                    "ok": False,
+                    "time": now_utc_str(),
+                    "error": "Scan already running. Skip overlapping run and retry shortly.",
+                    "code": "SCAN_LOCKED",
+                    "lock_name": lock_name,
+                    "retry_after_seconds": max(15, min(60, lock_ttl_seconds // 3)),
+                },
+                status_code=409,
+            )
+            return
 
         try:
             ensure_runtime_env()
@@ -724,6 +771,11 @@ class handler(BaseHTTPRequestHandler):
             if parse_env_bool(os.getenv("TRADING_BOT_DEBUG_API"), False):
                 payload["trace"] = traceback.format_exc(limit=3)
             self._write_json(payload, status_code=500)
+        finally:
+            try:
+                release_named_lock(path=lock_path, name=lock_name, owner=lock_owner)
+            except Exception:
+                pass
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self._set_headers(status_code=200)

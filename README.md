@@ -180,6 +180,7 @@ Only if you intentionally disable that protection should you set:
 | `TRADING_BOT_SCAN_TOKEN=<secret>` | `/api/scan` execution token (`Authorization: Bearer <token>`) |
 | `TRADING_BOT_STATUS_TOKEN=<secret>` | Read-only token for `/api/status`; keep different from `TRADING_BOT_SCAN_TOKEN` |
 | `TRADING_BOT_ALLOW_LIVE_ON_VERCEL` | `true` only if you intentionally allow live orders on Vercel |
+| `TRADING_BOT_SCAN_LOCK_TTL_SECONDS=180` | Overlap lock TTL for `/api/scan` (prevents cron+manual double-run) |
 
 ### Neon/PostgreSQL state backend
 
@@ -228,6 +229,9 @@ Authorization: Bearer <TRADING_BOT_SCAN_TOKEN>
 
 Recommended schedule: match cron interval to your strategy candle interval.  
 Current `configs/config.json` uses `5m`, so run cron every 5 minutes.
+
+If a manual trigger overlaps with cron, `/api/scan` now returns HTTP `409` with code `SCAN_LOCKED`.  
+This is expected and protects state/snapshots from overlapping writes.
 
 ### Manual API test (`/api/scan` is POST-only)
 

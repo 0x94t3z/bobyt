@@ -528,16 +528,72 @@ def calculate_position_size(entry_price: float, stop_price: float, risk_usdt: fl
     return risk_usdt / distance
 
 
-def get_risk_limits(config: Dict[str, Any]) -> Dict[str, float]:
+def get_state_total_realized_pnl_usdt(state: Optional[Dict[str, Any]]) -> float:
+    if not isinstance(state, dict):
+        return 0.0
+    trade_history = state.get("trade_history", [])
+    if not isinstance(trade_history, list):
+        return 0.0
+    total = 0.0
+    for row in trade_history:
+        if not isinstance(row, dict):
+            continue
+        total += to_float(row.get("pnl_usdt"), 0.0)
+    return total
+
+
+def get_compounding_config(config: Dict[str, Any]) -> Dict[str, float]:
     risk_cfg = config.get("risk", {})
-    equity = to_float(risk_cfg.get("account_equity_usdt"), 0.0)
+    comp_cfg = risk_cfg.get("compounding", {})
+    return {
+        "enabled": bool(comp_cfg.get("enabled", False)),
+        "position_notional_pct_of_equity": max(
+            0.0, to_float(comp_cfg.get("position_notional_pct_of_equity"), 0.0)
+        ),
+        "min_position_notional_usdt": max(
+            0.0, to_float(comp_cfg.get("min_position_notional_usdt"), 0.0)
+        ),
+        "max_position_notional_usdt": max(
+            0.0,
+            to_float(
+                comp_cfg.get("max_position_notional_usdt"),
+                to_float(risk_cfg.get("max_position_notional_usdt"), 0.0),
+            ),
+        ),
+    }
+
+
+def get_risk_limits(config: Dict[str, Any], state: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+    risk_cfg = config.get("risk", {})
+    base_equity = to_float(risk_cfg.get("account_equity_usdt"), 0.0)
+    realized_pnl = get_state_total_realized_pnl_usdt(state)
+    effective_equity = max(0.0, base_equity + realized_pnl)
     risk_per_trade_pct = to_float(risk_cfg.get("risk_per_trade_pct"), 0.0)
     max_daily_loss_pct = to_float(risk_cfg.get("max_daily_loss_pct"), 0.0)
     max_position_notional = to_float(risk_cfg.get("max_position_notional_usdt"), 0.0)
+
+    comp_cfg = get_compounding_config(config)
+    if (
+        bool(comp_cfg.get("enabled"))
+        and to_float(comp_cfg.get("position_notional_pct_of_equity"), 0.0) > 0
+        and effective_equity > 0
+    ):
+        dynamic_notional = effective_equity * (
+            to_float(comp_cfg.get("position_notional_pct_of_equity"), 0.0) / 100.0
+        )
+        min_notional = to_float(comp_cfg.get("min_position_notional_usdt"), 0.0)
+        max_notional = to_float(comp_cfg.get("max_position_notional_usdt"), 0.0)
+        if min_notional > 0:
+            dynamic_notional = max(dynamic_notional, min_notional)
+        if max_notional > 0:
+            dynamic_notional = min(dynamic_notional, max_notional)
+        max_position_notional = dynamic_notional
+
     return {
-        "equity": equity,
-        "risk_per_trade_usdt": equity * (risk_per_trade_pct / 100.0),
-        "daily_loss_limit_usdt": equity * (max_daily_loss_pct / 100.0),
+        "equity": base_equity,
+        "effective_equity_usdt": effective_equity,
+        "risk_per_trade_usdt": effective_equity * (risk_per_trade_pct / 100.0),
+        "daily_loss_limit_usdt": effective_equity * (max_daily_loss_pct / 100.0),
         "max_position_notional_usdt": max_position_notional,
     }
 
@@ -582,7 +638,7 @@ def update_circuit_breaker_status(config: Dict[str, Any], state: Dict[str, Any])
     risk_state = ensure_risk_state(state)
     pause_on_limit = bool(risk_cfg.get("pause_on_limit", True))
     max_consecutive_losses = int(risk_cfg.get("max_consecutive_losses", 0))
-    limits = get_risk_limits(config)
+    limits = get_risk_limits(config, state=state)
     daily_limit = limits["daily_loss_limit_usdt"]
 
     trigger_reason = ""
@@ -1530,6 +1586,7 @@ def enrich_result_with_risk_and_orders(
     exchange_cfg: Dict[str, Any],
     result: Dict[str, Any],
     qty_constraints: Optional[Dict[str, float]] = None,
+    state: Optional[Dict[str, Any]] = None,
 ) -> None:
     entry = to_float(result.get("wait_price"), 0.0)
     sl = to_float(result.get("sl_price"), 0.0)
@@ -1561,7 +1618,7 @@ def enrich_result_with_risk_and_orders(
             result["order_plan"] = None
             return
 
-    limits = get_risk_limits(config)
+    limits = get_risk_limits(config, state=state)
     risk_budget = limits["risk_per_trade_usdt"]
     raw_qty = calculate_position_size(entry, sl, risk_budget)
     max_notional = limits.get("max_position_notional_usdt", 0.0)
@@ -1878,6 +1935,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                 exchange_cfg=exchange_cfg,
                 result=result,
                 qty_constraints=qty_constraints_map.get(f"{category_for_symbol}:{symbol}"),
+                state=state,
             )
             max_price_usdt = to_float(price_filter_cfg.get("max_price_usdt"), 0.0)
             apply_by_source = (
@@ -2296,6 +2354,17 @@ def validate_config(config: Dict[str, Any]) -> None:
         raise ValueError("risk.max_open_positions must be >= 0")
     if "cooldown_minutes_after_loss" in risk_cfg and int(risk_cfg.get("cooldown_minutes_after_loss", 0)) < 0:
         raise ValueError("risk.cooldown_minutes_after_loss must be >= 0")
+    comp_cfg = risk_cfg.get("compounding", {})
+    if comp_cfg:
+        if "enabled" in comp_cfg and not isinstance(comp_cfg.get("enabled"), bool):
+            raise ValueError("risk.compounding.enabled must be boolean")
+        for key in (
+            "position_notional_pct_of_equity",
+            "min_position_notional_usdt",
+            "max_position_notional_usdt",
+        ):
+            if key in comp_cfg and to_float(comp_cfg.get(key), 0) < 0:
+                raise ValueError(f"risk.compounding.{key} must be >= 0")
     costs_cfg = config.get("execution_costs", {})
     for key in ("entry_fee_pct", "exit_fee_pct", "entry_slippage_pct", "exit_slippage_pct"):
         if key in costs_cfg and to_float(costs_cfg.get(key), 0) < 0:

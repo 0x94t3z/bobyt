@@ -221,7 +221,8 @@ Set HTTP header in cron-job.org:
 Authorization: Bearer <TRADING_BOT_SCAN_TOKEN>
 ```
 
-Recommended schedule for current strategy (`15m` candles): every 15 minutes.
+Recommended schedule: match cron interval to your strategy candle interval.  
+Current `configs/config.json` uses `5m`, so run cron every 5 minutes.
 
 ### Manual API test
 

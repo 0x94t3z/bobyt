@@ -709,6 +709,10 @@ def get_risk_limits(
     autoscale_eval = evaluate_autoscale_eligibility(config=config, state=state)
     autoscale_enabled = bool(autoscale_eval.get("enabled", False))
     autoscale_allowed = bool(autoscale_eval.get("eligible", True))
+    # When autoscale is enabled but not yet eligible, keep risk sizing anchored to base equity.
+    sizing_equity = compounding_equity
+    if autoscale_enabled and not autoscale_allowed:
+        sizing_equity = base_equity
     if (
         bool(comp_cfg.get("enabled"))
         and autoscale_allowed
@@ -733,7 +737,7 @@ def get_risk_limits(
         "equity": base_equity,
         "effective_equity_usdt": effective_equity,
         "compounding_equity_usdt": compounding_equity,
-        "risk_per_trade_usdt": compounding_equity * (risk_per_trade_pct / 100.0),
+        "risk_per_trade_usdt": sizing_equity * (risk_per_trade_pct / 100.0),
         # Keep daily circuit-breaker anchored to configured base equity.
         "daily_loss_limit_usdt": base_equity * (max_daily_loss_pct / 100.0),
         "max_position_notional_usdt": max_position_notional,

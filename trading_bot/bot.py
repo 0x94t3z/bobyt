@@ -346,6 +346,58 @@ def get_price_filter_config(config: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def get_regime_filter_config(strategy_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    regime_cfg = strategy_cfg.get("regime_filter", {})
+    return {
+        "enabled": bool(regime_cfg.get("enabled", False)),
+        "require_uptrend": bool(regime_cfg.get("require_uptrend", True)),
+        "min_trend_pct": max(0.0, to_float(regime_cfg.get("min_trend_pct"), 0.0)),
+        "require_slow_ema_rising": bool(regime_cfg.get("require_slow_ema_rising", True)),
+        "min_ema_slope_pct": max(0.0, to_float(regime_cfg.get("min_ema_slope_pct"), 0.0)),
+    }
+
+
+def evaluate_regime_filter(
+    strategy_cfg: Dict[str, Any],
+    ema_fast_now: float,
+    ema_slow_now: float,
+    ema_slow_prev: float,
+    price_now: float,
+) -> Dict[str, Any]:
+    trend_pct = ((ema_fast_now - ema_slow_now) / price_now) * 100 if price_now else 0.0
+    slow_ema_slope_pct = ((ema_slow_now - ema_slow_prev) / price_now) * 100 if price_now else 0.0
+
+    regime_cfg = get_regime_filter_config(strategy_cfg)
+    if not regime_cfg.get("enabled", False):
+        return {
+            "enabled": False,
+            "ok": True,
+            "trend_pct": trend_pct,
+            "slow_ema_slope_pct": slow_ema_slope_pct,
+            "reason": "",
+        }
+
+    blockers: List[str] = []
+    if regime_cfg.get("require_uptrend", True) and ema_fast_now <= ema_slow_now:
+        blockers.append("ema_fast<=ema_slow")
+    min_trend_pct = to_float(regime_cfg.get("min_trend_pct"), 0.0)
+    if min_trend_pct > 0 and trend_pct < min_trend_pct:
+        blockers.append(f"trend_pct {trend_pct:.3f}% < {min_trend_pct:.3f}%")
+    if regime_cfg.get("require_slow_ema_rising", True) and slow_ema_slope_pct <= 0:
+        blockers.append("slow_ema_slope<=0")
+    min_slope_pct = to_float(regime_cfg.get("min_ema_slope_pct"), 0.0)
+    if min_slope_pct > 0 and slow_ema_slope_pct < min_slope_pct:
+        blockers.append(f"slow_ema_slope {slow_ema_slope_pct:.3f}% < {min_slope_pct:.3f}%")
+
+    return {
+        "enabled": True,
+        "ok": len(blockers) == 0,
+        "trend_pct": trend_pct,
+        "slow_ema_slope_pct": slow_ema_slope_pct,
+        "reason": "; ".join(blockers),
+    }
+
+
 def compute_effective_trade_prices(
     entry_price: float,
     exit_price: float,
@@ -2112,7 +2164,14 @@ def analyze_symbol(
     cross_up = ema_fast_prev <= ema_slow_prev and ema_fast_now > ema_slow_now
     cross_down = ema_fast_prev >= ema_slow_prev and ema_fast_now < ema_slow_now
 
-    trend_pct = ((ema_fast_now - ema_slow_now) / price_now) * 100 if price_now else 0.0
+    regime_eval = evaluate_regime_filter(
+        strategy_cfg=strategy_cfg,
+        ema_fast_now=ema_fast_now,
+        ema_slow_now=ema_slow_now,
+        ema_slow_prev=ema_slow_prev,
+        price_now=price_now,
+    )
+    trend_pct = to_float(regime_eval.get("trend_pct"), 0.0)
     score = (trend_pct * 2.0) + (1.0 - min(abs(rsi_now - 60.0), 40.0) / 40.0) * 2.0
 
     result: Dict[str, Any] = {
@@ -2123,6 +2182,8 @@ def analyze_symbol(
         "ema_slow": ema_slow_now,
         "rsi": rsi_now,
         "score": score,
+        "trend_pct": trend_pct,
+        "slow_ema_slope_pct": to_float(regime_eval.get("slow_ema_slope_pct"), 0.0),
         "close_time": close_time,
         "signal": None,
         "action": "WAIT",
@@ -2193,6 +2254,16 @@ def analyze_symbol(
     uptrend = ema_fast_now > ema_slow_now
 
     if cross_up and buy_min <= rsi_now <= buy_max and price_now >= ema_fast_now:
+        if not regime_eval.get("ok", True):
+            result["action"] = "WAIT_REGIME"
+            result["wait_price"] = limit_price
+            exits = build_exit_prices(limit_price, tp_pct, sl_pct)
+            result["tp_price"] = exits["tp_price"]
+            result["sl_price"] = exits["sl_price"]
+            result["note"] = (
+                f"Regime filter blocked entry ({regime_eval.get('reason', 'weak trend')})"
+            )
+            return result
         exits = build_exit_prices(limit_price, tp_pct, sl_pct)
         result["signal"] = "LIMIT_BUY"
         result["action"] = "BUY_LIMIT"
@@ -3631,6 +3702,22 @@ def validate_config(config: Dict[str, Any]) -> None:
         min_turnover = float(discovery_cfg.get("min_turnover_usdt", 0))
         if min_turnover < 0:
             raise ValueError("spot_discovery.min_turnover_usdt must be >= 0")
+    strategy_cfg = config.get("strategy", {})
+    regime_cfg = strategy_cfg.get("regime_filter", {})
+    if regime_cfg and not isinstance(regime_cfg, dict):
+        raise ValueError("strategy.regime_filter must be an object")
+    if isinstance(regime_cfg, dict):
+        if "enabled" in regime_cfg and not isinstance(regime_cfg.get("enabled"), bool):
+            raise ValueError("strategy.regime_filter.enabled must be boolean")
+        if "require_uptrend" in regime_cfg and not isinstance(regime_cfg.get("require_uptrend"), bool):
+            raise ValueError("strategy.regime_filter.require_uptrend must be boolean")
+        if "require_slow_ema_rising" in regime_cfg and not isinstance(
+            regime_cfg.get("require_slow_ema_rising"), bool
+        ):
+            raise ValueError("strategy.regime_filter.require_slow_ema_rising must be boolean")
+        for key in ("min_trend_pct", "min_ema_slope_pct"):
+            if key in regime_cfg and to_float(regime_cfg.get(key), 0) < 0:
+                raise ValueError(f"strategy.regime_filter.{key} must be >= 0")
     risk_cfg = config.get("risk", {})
     for key in ("account_equity_usdt", "risk_per_trade_pct", "max_daily_loss_pct", "max_position_notional_usdt"):
         if key in risk_cfg and to_float(risk_cfg.get(key), 0) < 0:

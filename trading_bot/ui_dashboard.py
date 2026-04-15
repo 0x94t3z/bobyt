@@ -480,7 +480,16 @@ def main() -> None:
         min_score = st.slider("Minimum score", min_value=-5.0, max_value=15.0, value=-5.0, step=0.1)
         action_filter = st.multiselect(
             "Action filter",
-            options=["BUY_LIMIT", "WAIT_LIMIT", "WAIT_PULLBACK", "WAIT_CONFIRM", "WAIT", "HOLD", "SELL"],
+            options=[
+                "BUY_LIMIT",
+                "WAIT_LIMIT",
+                "WAIT_PULLBACK",
+                "WAIT_CONFIRM",
+                "WAIT_REGIME",
+                "WAIT",
+                "HOLD",
+                "SELL",
+            ],
             default=[],
         )
         refresh_seconds = st.number_input(

@@ -119,7 +119,7 @@ Main file: `configs/config.json`
 | `exchange` | `category` (`spot` or `linear`) | Selects Spot vs Futures market type on Bybit |
 | `spot_discovery` | `enabled`, `add_count`, `min_turnover_usdt`, `min_price_change_pct` | Auto-adds trending Bybit spot pairs |
 | `price_filter` | `enabled`, `max_price_usdt`, `apply_to_watchlist`, `apply_to_spot_discovery` | Hard gate by token price (e.g. only <= `0.1`) |
-| `strategy` | EMA/RSI/pullback/TP/SL | Entry/exit behavior |
+| `strategy` | EMA/RSI/pullback/TP/SL + `regime_filter` | Entry/exit behavior and choppy-market gating |
 | `risk` | `risk_per_trade_pct`, `max_position_notional_usdt`, `max_open_positions`, `max_daily_loss_pct`, `compounding.autoscale` | Position sizing + circuit breakers |
 | `execution` | `mode`, `assume_filled_on_submit`, `live_safety` | Paper vs live and live locks |
 | `liquidity_filter` | `max_spread_pct`, `min_turnover_24h_usdt` | Avoid illiquid setups |

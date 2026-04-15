@@ -34,7 +34,14 @@
     "rsi_sell": 84,
     "limit_pullback_pct": 0.25,
     "take_profit_pct": 2.6,
-    "stop_loss_pct": 1.6
+    "stop_loss_pct": 1.6,
+    "regime_filter": {
+      "enabled": true,
+      "require_uptrend": true,
+      "min_trend_pct": 0.12,
+      "require_slow_ema_rising": true,
+      "min_ema_slope_pct": 0.03
+    }
   },
   "risk": {
     "open_on_buy_signal": true,

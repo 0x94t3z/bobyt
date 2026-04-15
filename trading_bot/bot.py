@@ -51,6 +51,7 @@ from .state_store import (
 DEFAULT_STATE_FILE = "state/bot_state.json"
 DEFAULT_VERCEL_STATE_FILE = "/tmp/trading_bot_state.json"
 DEFAULT_JOURNAL_LIMIT = 5000
+DEFAULT_EXECUTION_EVENTS_LIMIT = 1000
 SUPPORTED_EXCHANGES = {"binance", "bybit"}
 BYBIT_SUPPORTED_CATEGORIES = {"linear", "inverse", "spot"}
 BYBIT_DERIVATIVE_CATEGORIES = {"linear", "inverse"}
@@ -109,6 +110,7 @@ def build_default_state() -> Dict[str, Any]:
         "live_pending_entries": {},
         "spot_entry_hints": {},
         "spot_close_candidates": {},
+        "execution_events_history": [],
     }
 
 
@@ -388,9 +390,11 @@ def compute_trade_pnl_usdt(
 def get_journal_config(config: Dict[str, Any]) -> Dict[str, Any]:
     journal_cfg = config.get("journal", {})
     max_closed = int(journal_cfg.get("max_closed_trades", DEFAULT_JOURNAL_LIMIT))
+    max_events = int(journal_cfg.get("max_execution_events", DEFAULT_EXECUTION_EVENTS_LIMIT))
     return {
         "enabled": bool(journal_cfg.get("enabled", True)),
         "max_closed_trades": max(100, max_closed),
+        "max_execution_events": max(100, max_events),
     }
 
 
@@ -400,6 +404,39 @@ def ensure_trade_history_state(state: Dict[str, Any]) -> List[Dict[str, Any]]:
         trade_history = []
         state["trade_history"] = trade_history
     return trade_history
+
+
+def ensure_execution_events_history_state(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    history = state.setdefault("execution_events_history", [])
+    if not isinstance(history, list):
+        history = []
+        state["execution_events_history"] = history
+    return history
+
+
+def add_execution_events_to_history(
+    config: Dict[str, Any],
+    state: Dict[str, Any],
+    execution_events: List[Dict[str, Any]],
+) -> None:
+    if not isinstance(execution_events, list) or not execution_events:
+        return
+    journal_cfg = get_journal_config(config)
+    history = ensure_execution_events_history_state(state)
+    for event in execution_events:
+        if not isinstance(event, dict):
+            continue
+        history.append(
+            {
+                "time": str(event.get("time", now_utc_str())),
+                "symbol": str(event.get("symbol", "")),
+                "result": event.get("result", {}),
+            }
+        )
+    max_events = int(journal_cfg.get("max_execution_events", DEFAULT_EXECUTION_EVENTS_LIMIT))
+    overflow = len(history) - max_events
+    if overflow > 0:
+        del history[:overflow]
 
 
 def add_closed_trade_to_history(
@@ -943,12 +980,14 @@ def build_bybit_spot_exit_order_plan(
     qty: float,
     order_group_id: str = "",
     qty_constraints: Optional[Dict[str, float]] = None,
+    reference_price: float = 0.0,
 ) -> Optional[Dict[str, Any]]:
     if qty <= 0:
         return None
     qty_step = to_float((qty_constraints or {}).get("qty_step"), 0.0)
     min_qty = to_float((qty_constraints or {}).get("min_qty"), 0.0)
     max_qty = to_float((qty_constraints or {}).get("max_qty"), 0.0)
+    min_notional = to_float((qty_constraints or {}).get("min_notional"), 0.0)
     adjusted_qty = floor_to_step(qty, qty_step) if qty_step > 0 else qty
     if max_qty > 0:
         adjusted_qty = min(adjusted_qty, max_qty)
@@ -956,6 +995,9 @@ def build_bybit_spot_exit_order_plan(
         return None
     if min_qty > 0 and adjusted_qty < min_qty:
         return None
+    if min_notional > 0 and reference_price > 0:
+        if (adjusted_qty * reference_price) < min_notional:
+            return None
     exit_order: Dict[str, Any] = {
         "category": "spot",
         "symbol": symbol,
@@ -2398,6 +2440,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         spot_close_candidates = {}
         state["spot_close_candidates"] = spot_close_candidates
     ensure_trade_history_state(state)
+    ensure_execution_events_history_state(state)
     risk_state = ensure_risk_state(state)
 
     exchange_cfg = config["exchange"]
@@ -2647,7 +2690,12 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                 held_qty = max(wallet_qty, available_qty, free_qty)
                 qty_constraints = qty_constraints_map.get(f"spot:{symbol}", {})
                 min_qty = to_float(qty_constraints.get("min_qty"), 0.0)
+                min_notional = to_float(qty_constraints.get("min_notional"), 0.0)
+                ticker_row = ticker_maps.get("spot", {}).get(symbol, {})
+                ref_price = to_float(ticker_row.get("lastPrice"), 0.0)
                 qty_threshold = min_qty if min_qty > 0 else 0.0
+                if min_notional > 0 and ref_price > 0:
+                    qty_threshold = max(qty_threshold, (min_notional / ref_price))
                 if held_qty > qty_threshold:
                     spot_close_candidates.pop(symbol, None)
                     hint_candidates = [
@@ -3107,7 +3155,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                             if live_sync_required
                             else positions.get(symbol)
                         )
-                        if not pos:
+                        if not pos and not live_sync_required:
                             pos = positions.get(symbol)
                         if pos:
                             entry = to_float(pos.get("entry"), 0.0)
@@ -3122,6 +3170,26 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                     fallback=default_bybit_category,
                                 )
                                 if (
+                                    live_sync_required
+                                    and exec_mode == "live"
+                                    and exchange_name == "bybit"
+                                    and market_category == "spot"
+                                ):
+                                    if symbol in live_sync_errors:
+                                        cycle_alerts.append(
+                                            f"EXIT BLOCKED {symbol} | Live sync error: {live_sync_errors[symbol]}"
+                                        )
+                                        continue
+                                    if symbol not in live_synced_positions:
+                                        cycle_alerts.append(
+                                            f"EXIT SKIPPED {symbol} | No synced live spot position "
+                                            f"(likely already closed by TP/SL or dust below min order value)."
+                                        )
+                                        positions.pop(symbol, None)
+                                        spot_entry_hints.pop(symbol, None)
+                                        spot_close_candidates.pop(symbol, None)
+                                        continue
+                                if (
                                     exec_mode == "live"
                                     and exchange_name == "bybit"
                                     and market_category == "spot"
@@ -3133,6 +3201,8 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                     continue
                                 if exec_mode == "live" and exchange_name == "bybit" and market_category == "spot":
                                     qty_constraints = qty_constraints_map.get(f"spot:{symbol}", {})
+                                    min_notional = to_float((qty_constraints or {}).get("min_notional"), 0.0)
+                                    ref_price = to_float(result.get("price"), entry)
                                     exit_plan = build_bybit_spot_exit_order_plan(
                                         symbol=symbol,
                                         qty=close_qty,
@@ -3141,6 +3211,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                             close_time=result.get("close_time"),
                                         ),
                                         qty_constraints=qty_constraints,
+                                        reference_price=ref_price,
                                     )
                                     if not exit_plan:
                                         qty_step = to_float((qty_constraints or {}).get("qty_step"), 0.0)
@@ -3155,6 +3226,14 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                                 f"EXIT BLOCKED {symbol} | Qty below min order after rounding "
                                                 f"({adjusted_qty:.8f} < {min_qty:.8f})."
                                             )
+                                        elif min_notional > 0 and ref_price > 0 and (adjusted_qty * ref_price) < min_notional:
+                                            cycle_alerts.append(
+                                                f"EXIT SKIPPED {symbol} | Position value below min order value "
+                                                f"({adjusted_qty * ref_price:.6f} < {min_notional:.6f})."
+                                            )
+                                            positions.pop(symbol, None)
+                                            spot_entry_hints.pop(symbol, None)
+                                            spot_close_candidates.pop(symbol, None)
                                         else:
                                             cycle_alerts.append(
                                                 f"EXIT BLOCKED {symbol} | Unable to build spot exit plan."
@@ -3315,6 +3394,8 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             cycle_errors.append(f"[{symbol}] Error: {e}")
 
+    add_execution_events_to_history(config=config, state=state, execution_events=execution_events)
+    execution_events_history = ensure_execution_events_history_state(state)
     trade_history = ensure_trade_history_state(state)
     limits_snapshot = get_risk_limits(
         config,
@@ -3340,6 +3421,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         "risk_state": risk_state,
         "risk_limits": limits_snapshot,
         "execution_events": execution_events,
+        "execution_events_history": execution_events_history[-50:],
         "performance": performance,
         "recent_closed_trades": recent_closed_trades,
     }
@@ -3599,6 +3681,8 @@ def validate_config(config: Dict[str, Any]) -> None:
         raise ValueError("journal.enabled must be boolean")
     if "max_closed_trades" in journal_cfg and int(journal_cfg.get("max_closed_trades", 0)) <= 0:
         raise ValueError("journal.max_closed_trades must be > 0")
+    if "max_execution_events" in journal_cfg and int(journal_cfg.get("max_execution_events", 0)) <= 0:
+        raise ValueError("journal.max_execution_events must be > 0")
     exec_cfg = config.get("execution", {})
     env_mode = os.getenv("TRADING_BOT_EXECUTION_MODE", "")
     mode = str(env_mode or exec_cfg.get("mode", "paper")).lower()

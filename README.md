@@ -123,7 +123,7 @@ Main file: `configs/config.json`
 | `risk` | `risk_per_trade_pct`, `max_position_notional_usdt`, `max_open_positions`, `max_daily_loss_pct`, `compounding.autoscale` | Position sizing + circuit breakers |
 | `execution` | `mode`, `assume_filled_on_submit`, `live_safety` | Paper vs live and live locks |
 | `liquidity_filter` | `max_spread_pct`, `min_turnover_24h_usdt` | Avoid illiquid setups |
-| `journal` | `enabled`, `max_closed_trades` | Performance tracking history |
+| `journal` | `enabled`, `max_closed_trades`, `max_execution_events` | Performance + execution-event history retention |
 
 ### Presets
 
@@ -196,6 +196,7 @@ Only if you intentionally disable that protection should you set:
 Notes:
 - Table is auto-created on first run.
 - Closed trades are also journaled into a dedicated Postgres table (`trading_bot_closed_trades`) for easier SQL/audit visibility.
+- Execution events are persisted in bot state (`journal.max_execution_events`) so dashboard can show recent history across cycles.
 - If `TRADING_BOT_STATE_BACKEND=file`, old JSON file behavior is used.
 
 ## Deploy with Vercel + cron-job.org

@@ -61,7 +61,8 @@
   },
   "journal": {
     "enabled": true,
-    "max_closed_trades": 5000
+    "max_closed_trades": 5000,
+    "max_execution_events": 1000
   },
   "execution": {
     "mode": "paper",

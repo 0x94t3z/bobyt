@@ -418,6 +418,8 @@ def summarize_focus_execution_status(
         }
 
     execution_events = cycle.get("execution_events", [])
+    if not execution_events:
+        execution_events = cycle.get("execution_events_history", [])
     for event in reversed(execution_events):
         if str(event.get("symbol", "")) != symbol:
             continue
@@ -507,6 +509,7 @@ def main() -> None:
         auto_added_symbols = cycle.get("auto_added_symbols", [])
         risk_state = cycle.get("risk_state", {})
         execution_events = cycle.get("execution_events", [])
+        execution_events_history = cycle.get("execution_events_history", [])
         performance = cycle.get("performance", {})
         performance_overall = performance.get("overall", {})
         performance_7d = performance.get("last_7d", {})
@@ -712,9 +715,10 @@ def main() -> None:
 
         with tab_ops:
             st.markdown("**Execution Events**")
-            if execution_events:
+            execution_feed = execution_events if execution_events else execution_events_history
+            if execution_feed:
                 exec_rows: List[Dict[str, Any]] = []
-                for event in execution_events:
+                for event in reversed(execution_feed[-100:]):
                     result = event.get("result", {})
                     if bool(result.get("success")):
                         status = "ORDER_SUBMITTED" if bool(result.get("submitted")) else "NOT_SUBMITTED"
@@ -731,7 +735,7 @@ def main() -> None:
                     )
                 st.dataframe(exec_rows, width="stretch", hide_index=True)
             else:
-                st.info("No execution events in this cycle.")
+                st.info("No execution events yet.")
 
             st.markdown("**Alerts**")
             if alerts:

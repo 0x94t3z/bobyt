@@ -556,7 +556,11 @@ class handler(BaseHTTPRequestHandler):
 
           renderPerformanceRows(data.performance || {});
           renderTopRows(data.top_results || []);
-          renderExecutionRows(data.execution_events || []);
+          const execFeed =
+            (Array.isArray(data.execution_events) && data.execution_events.length > 0)
+              ? data.execution_events
+              : (data.execution_events_history || []);
+          renderExecutionRows(execFeed);
             statusEl.textContent =
               "Backend last scan: " + text(data.time) +
               " | state: " + text(data.state_file) +
@@ -702,6 +706,7 @@ class handler(BaseHTTPRequestHandler):
             alerts = cycle.get("alerts", [])
             errors = cycle.get("errors", [])
             execution_events = cycle.get("execution_events", [])
+            execution_events_history = cycle.get("execution_events_history", [])
             open_symbols = extract_open_symbols(cycle)
             pending_entry_symbols = extract_pending_entry_symbols(cycle)
             execution_mode = str(
@@ -734,6 +739,7 @@ class handler(BaseHTTPRequestHandler):
                 "errors": errors,
                 "top_results": compact_results(results, limit=10),
                 "execution_events": execution_events,
+                "execution_events_history": execution_events_history,
                 "positions": {
                     "open_count": len(open_symbols),
                     "open_symbols": open_symbols,

@@ -25,6 +25,12 @@
     "fallback_to_best": true,
     "exclude_symbols": []
   },
+  "price_filter": {
+    "enabled": true,
+    "max_price_usdt": 0.1,
+    "apply_to_watchlist": true,
+    "apply_to_spot_discovery": true
+  },
   "strategy": {
     "ema_fast": 3,
     "ema_slow": 8,

@@ -63,6 +63,13 @@ def compact_results(results: List[Dict[str, Any]], limit: int = 10) -> List[Dict
     return compact
 
 
+def query_flag(query: Dict[str, List[str]], key: str, default: bool = False) -> bool:
+    values = query.get(key, [])
+    if not values:
+        return default
+    return parse_env_bool(values[0], default=default)
+
+
 class handler(BaseHTTPRequestHandler):
     def _set_headers(self, status_code: int = 200, content_type: str = "application/json") -> None:
         self.send_response(status_code)
@@ -217,14 +224,14 @@ class handler(BaseHTTPRequestHandler):
     <div class="wrap">
       <div class="hero">
         <h1 style="margin:0 0 6px 0;">Bobyt Trading Dashboard</h1>
-        <div class="muted">Vercel-hosted UI + API. Scan endpoint remains token-protected.</div>
+        <div class="muted">Vercel-hosted monitoring UI. All dashboard scans run in monitor-only mode (no live order submission).</div>
         <div class="controls">
           <input id="config" value="configs/config.json" placeholder="Config path" />
           <input id="token" placeholder="TRADING_BOT_SCAN_TOKEN" />
           <input id="refresh" type="number" min="15" value="60" />
           <button id="runBtn">Run Scan</button>
         </div>
-        <div class="status" id="status">Ready.</div>
+        <div class="status" id="status">Ready (monitor-only mode).</div>
       </div>
 
       <div class="stats">
@@ -270,7 +277,7 @@ class handler(BaseHTTPRequestHandler):
       async function runScan() {
         const config = $("config").value.trim() || "configs/config.json";
         const token = $("token").value.trim();
-        const qs = new URLSearchParams({ config });
+        const qs = new URLSearchParams({ config, monitor: "1" });
         if (token) qs.set("token", token);
         const url = "/api/scan?" + qs.toString();
 
@@ -306,7 +313,7 @@ class handler(BaseHTTPRequestHandler):
               </tr>`
             ).join("");
           }
-          statusEl.textContent = "Last scan: " + text(data.time);
+          statusEl.textContent = "Last scan: " + text(data.time) + " | monitor-only";
         } catch (e) {
           statusEl.textContent = "Network error: " + e;
         }
@@ -353,6 +360,7 @@ class handler(BaseHTTPRequestHandler):
             return
 
         config_arg = str(query.get("config", [DEFAULT_CONFIG_PATH])[0])
+        monitor_only = query_flag(query, "monitor", default=False)
 
         try:
             ensure_runtime_env()
@@ -370,8 +378,14 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             runtime_config = prepare_config_for_runtime(config)
+            if monitor_only:
+                exec_cfg = runtime_config.setdefault("execution", {})
+                exec_cfg["mode"] = "paper"
+                notes = runtime_config.setdefault("_runtime_notes", [])
+                if isinstance(notes, list):
+                    notes.append("Monitor-only API mode: execution.mode forced to 'paper'.")
             validate_config(runtime_config)
-            cycle = run_single_scan_with_state(runtime_config)
+            cycle = run_single_scan_with_state(runtime_config, persist_state=not monitor_only)
 
             results = cycle.get("results", [])
             alerts = cycle.get("alerts", [])
@@ -385,9 +399,11 @@ class handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "time": now_utc_str(),
                     "config_path": str(config_path.relative_to(ROOT_DIR)),
+                    "monitor_only": bool(monitor_only),
                     "execution_mode": execution_mode,
                     "runtime_notes": cycle.get("runtime_notes", runtime_config.get("_runtime_notes", [])),
                     "state_file": cycle.get("state_file"),
+                    "state_persisted": bool(cycle.get("state_persisted", not monitor_only)),
                     "summary": {
                         "scanned": len(results),
                         "alerts": len(alerts),

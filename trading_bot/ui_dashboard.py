@@ -305,7 +305,7 @@ def build_table_rows(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return rows
 
 
-def run_scan(config_path: str) -> Dict[str, Any]:
+def run_scan(config_path: str, monitor_only: bool = True) -> Dict[str, Any]:
     ensure_runtime_env()
     config = load_json_file(config_path, None)
     if config is None:
@@ -313,11 +313,18 @@ def run_scan(config_path: str) -> Dict[str, Any]:
             f"Config not found: {config_path}. Copy configs/config.example.json to configs/config.json first."
         )
     runtime_config = prepare_config_for_runtime(config)
+    if monitor_only:
+        exec_cfg = runtime_config.setdefault("execution", {})
+        exec_cfg["mode"] = "paper"
+        notes = runtime_config.setdefault("_runtime_notes", [])
+        if isinstance(notes, list):
+            notes.append("UI monitor-only mode: execution.mode forced to 'paper'.")
     validate_config(runtime_config)
-    cycle = run_single_scan_with_state(runtime_config)
+    cycle = run_single_scan_with_state(runtime_config, persist_state=not monitor_only)
 
     cycle["config"] = runtime_config
     cycle["scanned_at"] = now_utc_str()
+    cycle["monitor_only"] = bool(monitor_only)
     return cycle
 
 
@@ -488,7 +495,7 @@ def main() -> None:
 
     if run_now or st.session_state["last_cycle"] is None or auto_refresh:
         try:
-            st.session_state["last_cycle"] = run_scan(config_path=config_path)
+            st.session_state["last_cycle"] = run_scan(config_path=config_path, monitor_only=True)
         except Exception as e:
             st.error(str(e))
 
@@ -509,6 +516,8 @@ def main() -> None:
             config=cycle.get("config", {}),
             exchange_cfg=cycle.get("config", {}).get("exchange", {}),
         )
+        if bool(cycle.get("monitor_only", False)):
+            st.info("Monitoring-only mode: UI scans never submit live orders and do not persist state.")
 
         filtered_results = filter_results(
             results=results,

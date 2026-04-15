@@ -2232,12 +2232,14 @@ def run_bot(config: Dict[str, Any], run_once: bool = False) -> None:
         time.sleep(scan_every_seconds)
 
 
-def run_single_scan_with_state(config: Dict[str, Any]) -> Dict[str, Any]:
+def run_single_scan_with_state(config: Dict[str, Any], persist_state: bool = True) -> Dict[str, Any]:
     state_file = str(config.get("state_file", DEFAULT_STATE_FILE))
     state = load_json_file(state_file, build_default_state())
     cycle = scan_once(config=config, state=state)
-    save_json_file(state_file, state)
+    if persist_state:
+        save_json_file(state_file, state)
     cycle["state_file"] = state_file
+    cycle["state_persisted"] = bool(persist_state)
     if config.get("_runtime_notes"):
         cycle["runtime_notes"] = list(config.get("_runtime_notes", []))
     return cycle

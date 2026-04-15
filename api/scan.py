@@ -21,12 +21,15 @@ from trading_bot.bot import (  # noqa: E402
     parse_env_bool,
     prepare_config_for_runtime,
     run_single_scan_with_state,
+    save_json_file,
     validate_config,
 )
 
 
 DEFAULT_CONFIG_PATH = "configs/config.json"
 ALLOWED_CONFIG_DIR = (ROOT_DIR / "configs").resolve()
+DEFAULT_STATUS_FILE = "state/last_scan_snapshot.json"
+DEFAULT_VERCEL_STATUS_FILE = "/tmp/trading_bot_last_scan_snapshot.json"
 
 
 def now_utc_str() -> str:
@@ -68,6 +71,19 @@ def query_flag(query: Dict[str, List[str]], key: str, default: bool = False) -> 
     if not values:
         return default
     return parse_env_bool(values[0], default=default)
+
+
+def is_running_on_vercel() -> bool:
+    if parse_env_bool(os.getenv("VERCEL"), False):
+        return True
+    return bool(str(os.getenv("VERCEL_ENV", "")).strip())
+
+
+def resolve_status_file() -> str:
+    override = str(os.getenv("TRADING_BOT_STATUS_FILE", "")).strip()
+    if override:
+        return override
+    return DEFAULT_VERCEL_STATUS_FILE if is_running_on_vercel() else DEFAULT_STATUS_FILE
 
 
 class handler(BaseHTTPRequestHandler):
@@ -224,14 +240,13 @@ class handler(BaseHTTPRequestHandler):
     <div class="wrap">
       <div class="hero">
         <h1 style="margin:0 0 6px 0;">Bobyt Trading Dashboard</h1>
-        <div class="muted">Vercel-hosted monitoring UI. All dashboard scans run in monitor-only mode (no live order submission).</div>
+        <div class="muted">Frontend monitors backend snapshots. Trading/scans run only from backend endpoint.</div>
         <div class="controls">
-          <input id="config" value="configs/config.json" placeholder="Config path" />
           <input id="token" placeholder="TRADING_BOT_SCAN_TOKEN" />
           <input id="refresh" type="number" min="15" value="60" />
-          <button id="runBtn">Run Scan</button>
+          <button id="refreshBtn">Refresh Now</button>
         </div>
-        <div class="status" id="status">Ready (monitor-only mode).</div>
+        <div class="status" id="status">Ready. Waiting for backend snapshot.</div>
       </div>
 
       <div class="stats">
@@ -251,7 +266,7 @@ class handler(BaseHTTPRequestHandler):
             </tr>
           </thead>
           <tbody id="rows">
-            <tr><td colspan="8" class="muted">No data yet. Run scan.</td></tr>
+            <tr><td colspan="8" class="muted">No data yet. Waiting backend snapshot.</td></tr>
           </tbody>
         </table>
       </div>
@@ -274,19 +289,28 @@ class handler(BaseHTTPRequestHandler):
         return "";
       }
 
-      async function runScan() {
-        const config = $("config").value.trim() || "configs/config.json";
+      async function fetchStatus() {
         const token = $("token").value.trim();
-        const qs = new URLSearchParams({ config, monitor: "1" });
+        const qs = new URLSearchParams({});
         if (token) qs.set("token", token);
-        const url = "/api/scan?" + qs.toString();
+        const url = "/api/status?" + qs.toString();
 
-        statusEl.textContent = "Scanning...";
+        statusEl.textContent = "Refreshing monitoring data...";
         try {
           const res = await fetch(url, { method: "GET" });
           const data = await res.json();
           if (!res.ok || !data.ok) {
-            statusEl.textContent = "Scan failed: " + (data.error || ("HTTP " + res.status));
+            statusEl.textContent = "Status fetch failed: " + (data.error || ("HTTP " + res.status));
+            return;
+          }
+          if (!data.has_data) {
+            $("m_scanned").textContent = "-";
+            $("m_buy").textContent = "-";
+            $("m_wait").textContent = "-";
+            $("m_err").textContent = "-";
+            $("m_exec").textContent = "-";
+            $("rows").innerHTML = '<tr><td colspan="8" class="muted">No backend snapshot yet. Trigger /api/scan from cron first.</td></tr>';
+            statusEl.textContent = "No backend snapshot yet. Run /api/scan (cron/manual) first.";
             return;
           }
           $("m_scanned").textContent = text(data.summary?.scanned);
@@ -313,7 +337,7 @@ class handler(BaseHTTPRequestHandler):
               </tr>`
             ).join("");
           }
-          statusEl.textContent = "Last scan: " + text(data.time) + " | monitor-only";
+          statusEl.textContent = "Backend last scan: " + text(data.time) + " | state: " + text(data.state_file);
         } catch (e) {
           statusEl.textContent = "Network error: " + e;
         }
@@ -322,12 +346,13 @@ class handler(BaseHTTPRequestHandler):
       function applyAutoRefresh() {
         if (timer) clearInterval(timer);
         const sec = Math.max(15, Number($("refresh").value || 60));
-        timer = setInterval(runScan, sec * 1000);
+        timer = setInterval(fetchStatus, sec * 1000);
       }
 
-      $("runBtn").addEventListener("click", runScan);
+      $("refreshBtn").addEventListener("click", fetchStatus);
       $("refresh").addEventListener("change", applyAutoRefresh);
       applyAutoRefresh();
+      fetchStatus();
     </script>
   </body>
 </html>""",
@@ -335,7 +360,7 @@ class handler(BaseHTTPRequestHandler):
             )
             return
 
-        if path not in {"/api", "/api/scan"}:
+        if path not in {"/api", "/api/scan", "/api/status"}:
             self._write_json(
                 {
                     "ok": False,
@@ -357,6 +382,27 @@ class handler(BaseHTTPRequestHandler):
                 },
                 status_code=401,
             )
+            return
+
+        if path == "/api/status":
+            status_file = resolve_status_file()
+            snapshot = load_json_file(status_file, None)
+            if not isinstance(snapshot, dict):
+                self._write_json(
+                    {
+                        "ok": True,
+                        "has_data": False,
+                        "time": now_utc_str(),
+                        "state_file": status_file,
+                        "message": "No backend snapshot yet. Trigger /api/scan first.",
+                    },
+                    status_code=200,
+                )
+                return
+            payload = dict(snapshot)
+            payload["ok"] = True
+            payload["has_data"] = True
+            self._write_json(payload, status_code=200)
             return
 
         config_arg = str(query.get("config", [DEFAULT_CONFIG_PATH])[0])
@@ -394,35 +440,46 @@ class handler(BaseHTTPRequestHandler):
                 cycle.get("config", runtime_config).get("execution", {}).get("mode", "paper")
             ).lower()
 
-            self._write_json(
-                {
-                    "ok": True,
-                    "time": now_utc_str(),
-                    "config_path": str(config_path.relative_to(ROOT_DIR)),
-                    "monitor_only": bool(monitor_only),
-                    "execution_mode": execution_mode,
-                    "runtime_notes": cycle.get("runtime_notes", runtime_config.get("_runtime_notes", [])),
-                    "state_file": cycle.get("state_file"),
-                    "state_persisted": bool(cycle.get("state_persisted", not monitor_only)),
-                    "summary": {
-                        "scanned": len(results),
-                        "alerts": len(alerts),
-                        "errors": len(errors),
-                        "buy_signals": len([r for r in results if str(r.get("action")) == "BUY_LIMIT"]),
-                        "wait_signals": len(
-                            [r for r in results if str(r.get("action", "")).startswith("WAIT")]
-                        ),
-                    },
-                    "auto_added_symbols": cycle.get("auto_added_symbols", []),
-                    "alerts": alerts,
-                    "errors": errors,
-                    "top_results": compact_results(results, limit=10),
-                    "execution_events": cycle.get("execution_events", []),
-                    "risk_state": cycle.get("risk_state", {}),
-                    "performance": cycle.get("performance", {}),
+            payload = {
+                "ok": True,
+                "time": now_utc_str(),
+                "config_path": str(config_path.relative_to(ROOT_DIR)),
+                "monitor_only": bool(monitor_only),
+                "execution_mode": execution_mode,
+                "runtime_notes": cycle.get("runtime_notes", runtime_config.get("_runtime_notes", [])),
+                "state_file": cycle.get("state_file"),
+                "state_persisted": bool(cycle.get("state_persisted", not monitor_only)),
+                "summary": {
+                    "scanned": len(results),
+                    "alerts": len(alerts),
+                    "errors": len(errors),
+                    "buy_signals": len([r for r in results if str(r.get("action")) == "BUY_LIMIT"]),
+                    "wait_signals": len(
+                        [r for r in results if str(r.get("action", "")).startswith("WAIT")]
+                    ),
                 },
-                status_code=200,
-            )
+                "auto_added_symbols": cycle.get("auto_added_symbols", []),
+                "alerts": alerts,
+                "errors": errors,
+                "top_results": compact_results(results, limit=10),
+                "execution_events": cycle.get("execution_events", []),
+                "risk_state": cycle.get("risk_state", {}),
+                "performance": cycle.get("performance", {}),
+            }
+
+            if not monitor_only:
+                snapshot = dict(payload)
+                snapshot.pop("ok", None)
+                status_file = resolve_status_file()
+                try:
+                    save_json_file(status_file, snapshot)
+                    payload["status_file"] = status_file
+                except Exception as status_error:
+                    payload.setdefault("runtime_notes", [])
+                    if isinstance(payload["runtime_notes"], list):
+                        payload["runtime_notes"].append(f"Status snapshot save failed: {status_error}")
+
+            self._write_json(payload, status_code=200)
         except Exception as e:
             self._write_json(
                 {

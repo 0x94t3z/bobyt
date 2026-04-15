@@ -10,6 +10,10 @@
     {
       "source": "/api/scan",
       "destination": "/api"
+    },
+    {
+      "source": "/api/status",
+      "destination": "/api"
     }
   ]
 }

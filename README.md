@@ -153,13 +153,16 @@ The app auto-loads `.env` locally. Keep real secrets only in `.env` or platform 
 | `TRADING_BOT_ALLOW_MAINNET` | `true` when using mainnet URL |
 
 For Bybit **spot live mode**, set `execution.assume_filled_on_submit` to `false` so fills are exchange-synced (safer than simulated fills).
+Also note: this bot does not place native exchange-side spot TP/SL brackets at entry.  
+If you still want live spot execution, explicitly acknowledge it with:
+`execution.live_safety.allow_unprotected_spot_entry=true`.
 
 ### Vercel/API specific
 
 | Variable | Purpose |
 |---|---|
-| `TRADING_BOT_REQUIRE_SCAN_AUTH=true` | Protect `/api/scan` |
-| `TRADING_BOT_SCAN_TOKEN=<secret>` | API auth token (`Bearer` or `?token=`) |
+| `TRADING_BOT_REQUIRE_SCAN_AUTH=true` | Protect `/api/scan` and `/api/status` |
+| `TRADING_BOT_SCAN_TOKEN=<secret>` | API auth token (`Authorization: Bearer <token>`) |
 | `TRADING_BOT_ALLOW_LIVE_ON_VERCEL` | `true` only if you intentionally allow live orders on Vercel |
 
 ### Neon/PostgreSQL state backend
@@ -196,7 +199,13 @@ This repository uses:
 Use URL:
 
 ```text
-https://<your-app>.vercel.app/api/scan?config=configs/config.json&token=<TRADING_BOT_SCAN_TOKEN>
+https://<your-app>.vercel.app/api/scan?config=configs/config.json
+```
+
+Set HTTP header in cron-job.org:
+
+```text
+Authorization: Bearer <TRADING_BOT_SCAN_TOKEN>
 ```
 
 Recommended schedule for current strategy (`15m` candles): every 15 minutes.

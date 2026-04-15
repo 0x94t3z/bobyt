@@ -70,7 +70,8 @@
     "live_safety": {
       "require_manual_unlock": true,
       "required_ack_phrase": "I_UNDERSTAND_LIVE_TRADING_RISK",
-      "require_mainnet_flag": true
+      "require_mainnet_flag": true,
+      "allow_unprotected_spot_entry": false
     },
     "bybit": {
       "api_key": "",

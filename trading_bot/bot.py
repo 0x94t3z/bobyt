@@ -1113,6 +1113,9 @@ def get_execution_config(config: Dict[str, Any]) -> Dict[str, Any]:
             ).strip()
             or LIVE_ACK_DEFAULT,
             "require_mainnet_flag": bool(live_safety_cfg.get("require_mainnet_flag", True)),
+            "allow_unprotected_spot_entry": bool(
+                live_safety_cfg.get("allow_unprotected_spot_entry", False)
+            ),
             "allow_live_trading": parse_env_bool(os.getenv("TRADING_BOT_ALLOW_LIVE"), False),
             "allow_mainnet": parse_env_bool(os.getenv("TRADING_BOT_ALLOW_MAINNET"), False),
             "ack_phrase": str(os.getenv("TRADING_BOT_LIVE_ACK", "")).strip(),
@@ -1154,6 +1157,11 @@ def evaluate_live_execution_guard(
         if bybit_category == "spot" and bool(exec_ctx.get("assume_filled_on_submit")):
             issues.append(
                 "Bybit spot live requires execution.assume_filled_on_submit=false."
+            )
+        if bybit_category == "spot" and not bool(safety.get("allow_unprotected_spot_entry", False)):
+            issues.append(
+                "Bybit spot live entry currently has no native exchange bracket TP/SL in this bot. "
+                "Set execution.live_safety.allow_unprotected_spot_entry=true to acknowledge this risk."
             )
 
     return {
@@ -2921,6 +2929,10 @@ def validate_config(config: Dict[str, Any]) -> None:
         live_safety_cfg.get("require_mainnet_flag"), bool
     ):
         raise ValueError("execution.live_safety.require_mainnet_flag must be boolean")
+    if "allow_unprotected_spot_entry" in live_safety_cfg and not isinstance(
+        live_safety_cfg.get("allow_unprotected_spot_entry"), bool
+    ):
+        raise ValueError("execution.live_safety.allow_unprotected_spot_entry must be boolean")
     required_phrase = str(live_safety_cfg.get("required_ack_phrase", LIVE_ACK_DEFAULT)).strip()
     if not required_phrase:
         raise ValueError("execution.live_safety.required_ack_phrase cannot be empty")

@@ -146,12 +146,7 @@ class handler(BaseHTTPRequestHandler):
         if header_value == f"Bearer {secret}":
             return True, ""
 
-        # Fallback for schedulers that are easier to configure with URL params.
-        query_token = str(query.get("token", [""])[0]).strip()
-        if query_token and query_token == secret:
-            return True, ""
-
-        return False, "Unauthorized (use Authorization: Bearer <token> or ?token=<token>)"
+        return False, "Unauthorized (use Authorization: Bearer <token>)"
 
     def _run_scan(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
@@ -195,7 +190,7 @@ class handler(BaseHTTPRequestHandler):
       .muted { color: var(--sub); }
       .controls {
         display: grid;
-        grid-template-columns: 2fr 1fr;
+        grid-template-columns: 2fr 1fr 1fr;
         gap: 10px;
         margin-top: 12px;
       }
@@ -264,8 +259,9 @@ class handler(BaseHTTPRequestHandler):
     <div class="wrap">
       <div class="hero">
         <h1 style="margin:0 0 6px 0;">Bobyt Trading Dashboard</h1>
-        <div class="muted">Frontend monitors backend snapshots (public). Trading/scans run only from protected backend endpoint.</div>
+        <div class="muted">Frontend monitors backend snapshots. Trading/scans run only from protected backend endpoint.</div>
         <div class="controls">
+          <input id="token" type="password" placeholder="Bearer token (TRADING_BOT_SCAN_TOKEN)" autocomplete="off" />
           <input id="refresh" type="number" min="15" value="60" />
           <button id="refreshBtn">Refresh Now</button>
         </div>
@@ -313,11 +309,31 @@ class handler(BaseHTTPRequestHandler):
     <script>
       const $ = (id) => document.getElementById(id);
       const statusEl = $("status");
+      const tokenInput = $("token");
+      const TOKEN_STORAGE_KEY = "bobyt_scan_token";
       let timer = null;
 
       function text(v) {
         if (v === null || v === undefined || v === "") return "-";
         return String(v);
+      }
+
+      function appendCell(tr, value, className = "") {
+        const td = document.createElement("td");
+        if (className) td.className = className;
+        td.textContent = text(value);
+        tr.appendChild(td);
+      }
+
+      function setPlaceholderRow(tbody, colSpan, message) {
+        tbody.replaceChildren();
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = colSpan;
+        td.className = "muted";
+        td.textContent = message;
+        tr.appendChild(td);
+        tbody.appendChild(tr);
       }
 
       function rowClass(action) {
@@ -336,12 +352,62 @@ class handler(BaseHTTPRequestHandler):
         return "-";
       }
 
+      function getAuthHeaders() {
+        const token = String(tokenInput.value || "").trim();
+        if (!token) return {};
+        return { Authorization: "Bearer " + token };
+      }
+
+      function renderTopRows(rows) {
+        const tbody = $("rows");
+        if (!rows.length) {
+          setPlaceholderRow(tbody, 8, "No rows in this scan.");
+          return;
+        }
+        tbody.replaceChildren();
+        rows.forEach((r) => {
+          const tr = document.createElement("tr");
+          appendCell(tr, r.symbol);
+          appendCell(tr, r.action, rowClass(r.action));
+          appendCell(tr, r.score);
+          appendCell(tr, r.price);
+          appendCell(tr, r.entry);
+          appendCell(tr, r.tp);
+          appendCell(tr, r.sl);
+          appendCell(tr, r.note);
+          tbody.appendChild(tr);
+        });
+      }
+
+      function renderExecutionRows(execEvents) {
+        const tbody = $("execRows");
+        if (!execEvents.length) {
+          setPlaceholderRow(tbody, 5, "No execution events in this snapshot.");
+          return;
+        }
+        tbody.replaceChildren();
+        execEvents.slice(-10).reverse().forEach((ev) => {
+          const result = ev.result || {};
+          const status = eventStatus(ev);
+          const submitted = result.submitted ? "YES" : "NO";
+          const statusClass =
+            status === "FAILED" ? "err" : (status === "ORDER_SUBMITTED" ? "ok" : "warn");
+          const tr = document.createElement("tr");
+          appendCell(tr, ev.time);
+          appendCell(tr, ev.symbol);
+          appendCell(tr, status, statusClass);
+          appendCell(tr, submitted);
+          appendCell(tr, result.message || "");
+          tbody.appendChild(tr);
+        });
+      }
+
       async function fetchStatus() {
         const url = "/api/status";
 
         statusEl.textContent = "Refreshing monitoring data...";
         try {
-          const res = await fetch(url, { method: "GET" });
+          const res = await fetch(url, { method: "GET", headers: getAuthHeaders() });
           const data = await res.json();
           if (!res.ok || !data.ok) {
             statusEl.textContent = "Status fetch failed: " + (data.error || ("HTTP " + res.status));
@@ -355,8 +421,8 @@ class handler(BaseHTTPRequestHandler):
             $("m_pending").textContent = "-";
             $("m_err").textContent = "-";
             $("m_exec").textContent = "-";
-            $("rows").innerHTML = '<tr><td colspan="8" class="muted">No backend snapshot yet. Trigger /api/scan from cron first.</td></tr>';
-            $("execRows").innerHTML = '<tr><td colspan="5" class="muted">No execution events yet.</td></tr>';
+            setPlaceholderRow($("rows"), 8, "No backend snapshot yet. Trigger /api/scan from cron first.");
+            setPlaceholderRow($("execRows"), 5, "No execution events yet.");
             statusEl.textContent = "No backend snapshot yet. Run /api/scan (cron/manual) first.";
             return;
           }
@@ -368,44 +434,8 @@ class handler(BaseHTTPRequestHandler):
           $("m_err").textContent = text(data.summary?.errors);
           $("m_exec").textContent = text((data.execution_mode || "").toUpperCase());
 
-          const rows = data.top_results || [];
-          const tbody = $("rows");
-          if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="8" class="muted">No rows in this scan.</td></tr>';
-          } else {
-            tbody.innerHTML = rows.map((r) =>
-              `<tr>
-                <td>${text(r.symbol)}</td>
-                <td class="${rowClass(r.action)}">${text(r.action)}</td>
-                <td>${text(r.score)}</td>
-                <td>${text(r.price)}</td>
-                <td>${text(r.entry)}</td>
-                <td>${text(r.tp)}</td>
-                <td>${text(r.sl)}</td>
-                <td>${text(r.note)}</td>
-              </tr>`
-            ).join("");
-          }
-
-          const execEvents = data.execution_events || [];
-          const execTbody = $("execRows");
-          if (!execEvents.length) {
-            execTbody.innerHTML = '<tr><td colspan="5" class="muted">No execution events in this snapshot.</td></tr>';
-          } else {
-            execTbody.innerHTML = execEvents.slice(-10).reverse().map((ev) => {
-              const result = ev.result || {};
-              const status = eventStatus(ev);
-              const submitted = result.submitted ? "YES" : "NO";
-              const msg = text(result.message || "");
-              return `<tr>
-                <td>${text(ev.time)}</td>
-                <td>${text(ev.symbol)}</td>
-                <td class="${status === "FAILED" ? "err" : (status === "ORDER_SUBMITTED" ? "ok" : "warn")}">${status}</td>
-                <td>${submitted}</td>
-                <td>${msg}</td>
-              </tr>`;
-            }).join("");
-          }
+          renderTopRows(data.top_results || []);
+          renderExecutionRows(data.execution_events || []);
             statusEl.textContent =
               "Backend last scan: " + text(data.time) +
               " | state: " + text(data.state_file) +
@@ -423,6 +453,10 @@ class handler(BaseHTTPRequestHandler):
 
       $("refreshBtn").addEventListener("click", fetchStatus);
       $("refresh").addEventListener("change", applyAutoRefresh);
+      tokenInput.value = window.sessionStorage.getItem(TOKEN_STORAGE_KEY) || "";
+      tokenInput.addEventListener("change", () => {
+        window.sessionStorage.setItem(TOKEN_STORAGE_KEY, tokenInput.value || "");
+      });
       applyAutoRefresh();
       fetchStatus();
     </script>
@@ -441,6 +475,18 @@ class handler(BaseHTTPRequestHandler):
                     "path": path,
                 },
                 status_code=404,
+            )
+            return
+
+        allowed, auth_error = self._is_authorized(query)
+        if not allowed:
+            self._write_json(
+                {
+                    "ok": False,
+                    "time": now_utc_str(),
+                    "error": auth_error,
+                },
+                status_code=401,
             )
             return
 
@@ -470,18 +516,6 @@ class handler(BaseHTTPRequestHandler):
             payload["status_storage_key"] = status_storage.get("storage_key")
             payload["status_storage_table"] = status_storage.get("table")
             self._write_json(payload, status_code=200)
-            return
-
-        allowed, auth_error = self._is_authorized(query)
-        if not allowed:
-            self._write_json(
-                {
-                    "ok": False,
-                    "time": now_utc_str(),
-                    "error": auth_error,
-                },
-                status_code=401,
-            )
             return
 
         config_arg = str(query.get("config", [DEFAULT_CONFIG_PATH])[0])

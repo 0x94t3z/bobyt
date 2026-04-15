@@ -19,7 +19,7 @@
   ],
   "spot_discovery": {
     "enabled": true,
-    "add_count": 10,
+    "add_count": 6,
     "min_turnover_usdt": 1500000,
     "min_price_change_pct": 0.005,
     "fallback_to_best": true,
@@ -39,8 +39,8 @@
     "rsi_buy_max": 90,
     "rsi_sell": 88,
     "limit_pullback_pct": 0.05,
-    "take_profit_pct": 1.6,
-    "stop_loss_pct": 1.0
+    "take_profit_pct": 2.2,
+    "stop_loss_pct": 0.9
   },
   "risk": {
     "open_on_buy_signal": true,
@@ -64,7 +64,7 @@
     },
     "max_daily_loss_pct": 3.0,
     "max_consecutive_losses": 3,
-    "max_open_positions": 2,
+    "max_open_positions": 1,
     "cooldown_minutes_after_loss": 20,
     "pause_on_limit": true
   },
@@ -76,8 +76,8 @@
   },
   "liquidity_filter": {
     "enabled": true,
-    "max_spread_pct": 0.6,
-    "min_turnover_24h_usdt": 500000,
+    "max_spread_pct": 0.25,
+    "min_turnover_24h_usdt": 2000000,
     "block_when_ticker_missing": true
   },
   "journal": {

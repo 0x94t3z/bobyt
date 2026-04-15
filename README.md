@@ -113,6 +113,7 @@ Main file: `configs/config.json`
 | Section | Key fields | Why it matters |
 |---|---|---|
 | `symbols` | e.g. `BTCUSDT`, `ETHUSDT` | Fixed watchlist each cycle |
+| `exchange` | `category` (`spot` or `linear`) | Selects Spot vs Futures market type on Bybit |
 | `spot_discovery` | `enabled`, `add_count`, `min_turnover_usdt`, `min_price_change_pct` | Auto-adds trending Bybit spot pairs |
 | `price_filter` | `enabled`, `max_price_usdt`, `apply_to_watchlist`, `apply_to_spot_discovery` | Hard gate by token price (e.g. only <= `0.1`) |
 | `strategy` | EMA/RSI/pullback/TP/SL | Entry/exit behavior |
@@ -217,7 +218,7 @@ If `api.bybit.com` has SSL/DNS problems on your network, keep both endpoints in 
   "name": "bybit",
   "base_url": "https://api.bytick.com",
   "backup_base_urls": ["https://api.bybit.com"],
-  "category": "linear"
+  "category": "spot"
 }
 ```
 

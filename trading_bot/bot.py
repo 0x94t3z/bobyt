@@ -44,6 +44,8 @@ DEFAULT_STATE_FILE = "state/bot_state.json"
 DEFAULT_VERCEL_STATE_FILE = "/tmp/trading_bot_state.json"
 DEFAULT_JOURNAL_LIMIT = 5000
 SUPPORTED_EXCHANGES = {"binance", "bybit"}
+BYBIT_SUPPORTED_CATEGORIES = {"linear", "inverse", "spot"}
+BYBIT_DERIVATIVE_CATEGORIES = {"linear", "inverse"}
 DEFAULT_EXCLUDED_STABLE_SYMBOLS = {
     "USDCUSDT",
     "USDEUSDT",
@@ -238,6 +240,17 @@ def format_turnover(value: float) -> str:
     if value >= 1_000:
         return f"{value / 1_000:.2f}K"
     return f"{value:.2f}"
+
+
+def normalize_bybit_category(raw: Any, fallback: str = "linear") -> str:
+    candidate = str(raw or "").strip().lower()
+    if candidate in BYBIT_SUPPORTED_CATEGORIES:
+        return candidate
+    return fallback
+
+
+def get_bybit_default_category(exchange_cfg: Dict[str, Any]) -> str:
+    return normalize_bybit_category(exchange_cfg.get("category", "linear"), fallback="linear")
 
 
 def build_exit_prices(entry_price: float, tp_pct: float, sl_pct: float) -> Dict[str, float]:
@@ -685,7 +698,8 @@ def build_bybit_order_plan(
     sl_price: float,
     order_group_id: str = "",
 ) -> Optional[Dict[str, Any]]:
-    if category not in {"linear", "inverse"}:
+    category = normalize_bybit_category(category, fallback="")
+    if category not in BYBIT_SUPPORTED_CATEGORIES:
         return None
     qty_text = f"{qty:.6f}"
     entry_order: Dict[str, Any] = {
@@ -697,6 +711,17 @@ def build_bybit_order_plan(
         "qty": qty_text,
         "timeInForce": "GTC",
     }
+    if category == "spot":
+        if order_group_id:
+            entry_order["orderLinkId"] = build_order_link_id(order_group_id, "en")
+        return {
+            "plan_mode": "spot_entry_only",
+            "order_group_id": order_group_id or "",
+            "entry_order": {
+                **entry_order,
+            },
+        }
+
     take_profit_order: Dict[str, Any] = {
         "category": category,
         "symbol": symbol,
@@ -723,6 +748,7 @@ def build_bybit_order_plan(
         take_profit_order["orderLinkId"] = build_order_link_id(order_group_id, "tp")
         stop_loss_order["orderLinkId"] = build_order_link_id(order_group_id, "sl")
     return {
+        "plan_mode": "derivatives_bracket",
         "order_group_id": order_group_id or "",
         "entry_order": {
             **entry_order,
@@ -1137,11 +1163,16 @@ def execute_bybit_order_plan(
             "responses": responses,
         }
 
+    plan_mode = str(order_plan.get("plan_mode", "")).lower()
+    success_message = "Bybit order plan submitted."
+    if plan_mode == "spot_entry_only":
+        success_message = "Bybit spot entry order submitted."
+
     return {
         "mode": mode,
         "submitted": bool(submitted_refs) or duplicate_ok_count > 0,
         "success": True,
-        "message": "Bybit order plan submitted.",
+        "message": success_message,
         "responses": responses,
     }
 
@@ -1743,9 +1774,13 @@ def enrich_result_with_risk_and_orders(
         return
 
     if adjusted_qty > 0:
-        category = "spot" if result.get("source") == "SPOT_BEST" else str(
-            exchange_cfg.get("category", "linear")
-        )
+        category = normalize_bybit_category(result.get("market_category"), fallback="")
+        if not category:
+            category = (
+                "spot"
+                if result.get("source") == "SPOT_BEST"
+                else get_bybit_default_category(exchange_cfg)
+            )
         order_group_id = build_order_group_id(
             symbol=str(result["symbol"]),
             close_time=result.get("close_time"),
@@ -1837,10 +1872,14 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     costs_cfg = get_execution_costs_config(config)
     liq_cfg = get_liquidity_filter_config(config)
     price_filter_cfg = get_price_filter_config(config)
+    default_bybit_category = (
+        get_bybit_default_category(exchange_cfg) if exchange_name == "bybit" else ""
+    )
     live_sync_required = (
         exchange_name == "bybit"
         and str(exec_ctx.get("mode", "paper")).lower() == "live"
         and not bool(exec_ctx.get("assume_filled_on_submit"))
+        and default_bybit_category in BYBIT_DERIVATIVE_CATEGORIES
     )
 
     cycle_results: List[Dict[str, Any]] = []
@@ -1861,7 +1900,13 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         if symbol in seen_symbols:
             continue
         seen_symbols.add(symbol)
-        symbol_jobs.append({"symbol": symbol, "category": "", "source": "WATCHLIST"})
+        symbol_jobs.append(
+            {
+                "symbol": symbol,
+                "category": default_bybit_category if exchange_name == "bybit" else "",
+                "source": "WATCHLIST",
+            }
+        )
 
     try:
         auto_added_symbols = pick_best_bybit_spot_symbols(config=config, existing_symbols=symbols)
@@ -1877,7 +1922,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     qty_constraints_map: Dict[str, Dict[str, float]] = {}
     if exchange_name == "bybit" and liq_cfg.get("enabled"):
         categories = {
-            (job["category"] or str(exchange_cfg.get("category", "linear")))
+            (job["category"] or default_bybit_category)
             for job in symbol_jobs
         }
         for category in categories:
@@ -1894,8 +1939,8 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         base_urls = get_bybit_base_urls(exchange_cfg)
         for job in symbol_jobs:
             symbol = job["symbol"]
-            category = job["category"] or str(exchange_cfg.get("category", "linear"))
-            if category not in {"linear", "inverse"}:
+            category = normalize_bybit_category(job["category"] or default_bybit_category, fallback="")
+            if category not in BYBIT_SUPPORTED_CATEGORIES:
                 continue
             key = f"{category}:{symbol}"
             if key in qty_constraints_map:
@@ -1944,8 +1989,8 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
             synced_pairs: set[str] = set()
             for job in symbol_jobs:
                 symbol = str(job["symbol"]).upper()
-                category = job["category"] or str(exchange_cfg.get("category", "linear"))
-                if category not in {"linear", "inverse"}:
+                category = normalize_bybit_category(job["category"] or default_bybit_category, fallback="")
+                if category not in BYBIT_DERIVATIVE_CATEGORIES:
                     continue
                 pair_key = f"{category}:{symbol}"
                 if pair_key in synced_pairs:
@@ -2006,7 +2051,10 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         symbol = job["symbol"]
         category_override = job["category"] or None
         source = job["source"]
-        category_for_symbol = category_override or str(exchange_cfg.get("category", "linear"))
+        category_for_symbol = normalize_bybit_category(
+            category_override or default_bybit_category,
+            fallback="linear",
+        )
         try:
             candles = fetch_klines(
                 exchange_cfg=exchange_cfg,
@@ -2024,6 +2072,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                 costs_cfg=costs_cfg,
             )
             result["source"] = source
+            result["market_category"] = category_for_symbol
             ticker_row = ticker_maps.get(category_for_symbol, {}).get(symbol)
             liq_eval = evaluate_entry_liquidity(
                 symbol=symbol,
@@ -2434,11 +2483,19 @@ def validate_config(config: Dict[str, Any]) -> None:
     if not config["symbols"]:
         raise ValueError("symbols list cannot be empty")
     exchange_name = str(config["exchange"].get("name", "binance")).lower()
+    bybit_category = normalize_bybit_category(config["exchange"].get("category", "linear"))
     if exchange_name not in SUPPORTED_EXCHANGES:
         raise ValueError(
             f"Unsupported exchange '{exchange_name}'. "
             f"Supported: {', '.join(sorted(SUPPORTED_EXCHANGES))}"
         )
+    if exchange_name == "bybit":
+        raw_category = str(config["exchange"].get("category", "linear")).lower()
+        if raw_category not in BYBIT_SUPPORTED_CATEGORIES:
+            raise ValueError(
+                "exchange.category for Bybit must be one of: "
+                + ", ".join(sorted(BYBIT_SUPPORTED_CATEGORIES))
+            )
     backup_urls = config["exchange"].get("backup_base_urls", [])
     if backup_urls and not isinstance(backup_urls, list):
         raise ValueError("exchange.backup_base_urls must be a list of URLs")
@@ -2511,6 +2568,11 @@ def validate_config(config: Dict[str, Any]) -> None:
         raise ValueError("execution.mode must be 'paper' or 'live'")
     if mode == "live" and exchange_name != "bybit":
         raise ValueError("execution.mode='live' currently supports only exchange.name='bybit'")
+    if mode == "live" and exchange_name == "bybit" and bybit_category == "spot":
+        if not bool(exec_cfg.get("assume_filled_on_submit", False)):
+            raise ValueError(
+                "execution.assume_filled_on_submit must be true for Bybit spot live mode."
+            )
     if "recv_window_ms" in exec_cfg and int(exec_cfg.get("recv_window_ms", 0)) <= 0:
         raise ValueError("execution.recv_window_ms must be > 0")
     live_safety_cfg = exec_cfg.get("live_safety", {})

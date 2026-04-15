@@ -2,7 +2,7 @@
   "exchange": {
     "name": "bybit",
     "base_url": "https://api.bytick.com",
-    "category": "linear",
+    "category": "spot",
     "backup_base_urls": [
       "https://api.bybit.com"
     ]

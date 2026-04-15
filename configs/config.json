@@ -83,11 +83,12 @@
       "require_manual_unlock": true,
       "required_ack_phrase": "I_UNDERSTAND_LIVE_TRADING_RISK",
       "require_mainnet_flag": true,
-      "allow_unprotected_spot_entry": true
+      "allow_unprotected_spot_entry": false
     },
     "bybit": {
       "api_key": "",
-      "api_secret": ""
+      "api_secret": "",
+      "spot_native_tpsl_on_entry": true
     }
   },
   "notifications": {

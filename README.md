@@ -153,8 +153,9 @@ The app auto-loads `.env` locally. Keep real secrets only in `.env` or platform 
 | `TRADING_BOT_ALLOW_MAINNET` | `true` when using mainnet URL |
 
 For Bybit **spot live mode**, set `execution.assume_filled_on_submit` to `false` so fills are exchange-synced (safer than simulated fills).
-Also note: this bot does not place native exchange-side spot TP/SL brackets at entry.  
-If you still want live spot execution, explicitly acknowledge it with:
+By default, spot entries attach native TP/SL to the entry order via:
+`execution.bybit.spot_native_tpsl_on_entry=true` (recommended).
+Only if you intentionally disable that protection should you set:
 `execution.live_safety.allow_unprotected_spot_entry=true`.
 
 ### Vercel/API specific

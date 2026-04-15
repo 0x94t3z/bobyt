@@ -81,7 +81,8 @@
     },
     "bybit": {
       "api_key": "",
-      "api_secret": ""
+      "api_secret": "",
+      "spot_native_tpsl_on_entry": true
     }
   },
   "notifications": {

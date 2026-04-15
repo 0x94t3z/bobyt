@@ -734,6 +734,7 @@ def build_bybit_order_plan(
     tp_price: float,
     sl_price: float,
     order_group_id: str = "",
+    spot_native_tpsl_on_entry: bool = True,
 ) -> Optional[Dict[str, Any]]:
     category = normalize_bybit_category(category, fallback="")
     if category not in BYBIT_SUPPORTED_CATEGORIES:
@@ -749,10 +750,17 @@ def build_bybit_order_plan(
         "timeInForce": "GTC",
     }
     if category == "spot":
+        plan_mode = "spot_entry_only"
+        if spot_native_tpsl_on_entry and tp_price > 0 and sl_price > 0:
+            entry_order["takeProfit"] = f"{tp_price:.10f}"
+            entry_order["stopLoss"] = f"{sl_price:.10f}"
+            entry_order["tpOrderType"] = "Market"
+            entry_order["slOrderType"] = "Market"
+            plan_mode = "spot_entry_with_tpsl"
         if order_group_id:
             entry_order["orderLinkId"] = build_order_link_id(order_group_id, "en")
         return {
-            "plan_mode": "spot_entry_only",
+            "plan_mode": plan_mode,
             "order_group_id": order_group_id or "",
             "entry_order": {
                 **entry_order,
@@ -1106,6 +1114,9 @@ def get_execution_config(config: Dict[str, Any]) -> Dict[str, Any]:
         "recv_window": int(exec_cfg.get("recv_window_ms", 5000)),
         "api_key": str(bybit_cfg.get("api_key", "") or os.getenv("BYBIT_API_KEY", "")),
         "api_secret": str(bybit_cfg.get("api_secret", "") or os.getenv("BYBIT_API_SECRET", "")),
+        "bybit": {
+            "spot_native_tpsl_on_entry": bool(bybit_cfg.get("spot_native_tpsl_on_entry", True)),
+        },
         "live_safety": {
             "require_manual_unlock": bool(live_safety_cfg.get("require_manual_unlock", True)),
             "required_ack_phrase": str(
@@ -1154,14 +1165,21 @@ def evaluate_live_execution_guard(
     exchange_name = str(exchange_cfg.get("name", "")).lower()
     if exchange_name == "bybit":
         bybit_category = get_bybit_default_category(exchange_cfg)
+        bybit_exec_cfg = exec_ctx.get("bybit", {})
+        spot_native_tpsl_on_entry = bool(bybit_exec_cfg.get("spot_native_tpsl_on_entry", True))
         if bybit_category == "spot" and bool(exec_ctx.get("assume_filled_on_submit")):
             issues.append(
                 "Bybit spot live requires execution.assume_filled_on_submit=false."
             )
-        if bybit_category == "spot" and not bool(safety.get("allow_unprotected_spot_entry", False)):
+        if (
+            bybit_category == "spot"
+            and not spot_native_tpsl_on_entry
+            and not bool(safety.get("allow_unprotected_spot_entry", False))
+        ):
             issues.append(
-                "Bybit spot live entry currently has no native exchange bracket TP/SL in this bot. "
-                "Set execution.live_safety.allow_unprotected_spot_entry=true to acknowledge this risk."
+                "Bybit spot live native TP/SL on entry is disabled. "
+                "Either set execution.bybit.spot_native_tpsl_on_entry=true (recommended) "
+                "or set execution.live_safety.allow_unprotected_spot_entry=true to acknowledge this risk."
             )
 
     return {
@@ -1304,6 +1322,8 @@ def execute_bybit_order_plan(
     success_message = "Bybit order plan submitted."
     if plan_mode == "spot_entry_only":
         success_message = "Bybit spot entry order submitted."
+    elif plan_mode == "spot_entry_with_tpsl":
+        success_message = "Bybit spot entry order submitted with attached TP/SL."
     elif plan_mode == "spot_exit_market":
         success_message = "Bybit spot exit sell submitted."
 
@@ -1920,6 +1940,9 @@ def enrich_result_with_risk_and_orders(
                 if result.get("source") == "SPOT_BEST"
                 else get_bybit_default_category(exchange_cfg)
             )
+        exec_cfg = config.get("execution", {})
+        bybit_exec_cfg = exec_cfg.get("bybit", {})
+        spot_native_tpsl_on_entry = bool(bybit_exec_cfg.get("spot_native_tpsl_on_entry", True))
         order_group_id = build_order_group_id(
             symbol=str(result["symbol"]),
             close_time=result.get("close_time"),
@@ -1932,6 +1955,7 @@ def enrich_result_with_risk_and_orders(
             tp_price=tp,
             sl_price=sl,
             order_group_id=order_group_id,
+            spot_native_tpsl_on_entry=spot_native_tpsl_on_entry,
         )
 
 
@@ -2933,6 +2957,11 @@ def validate_config(config: Dict[str, Any]) -> None:
         live_safety_cfg.get("allow_unprotected_spot_entry"), bool
     ):
         raise ValueError("execution.live_safety.allow_unprotected_spot_entry must be boolean")
+    bybit_exec_cfg = exec_cfg.get("bybit", {})
+    if "spot_native_tpsl_on_entry" in bybit_exec_cfg and not isinstance(
+        bybit_exec_cfg.get("spot_native_tpsl_on_entry"), bool
+    ):
+        raise ValueError("execution.bybit.spot_native_tpsl_on_entry must be boolean")
     required_phrase = str(live_safety_cfg.get("required_ack_phrase", LIVE_ACK_DEFAULT)).strip()
     if not required_phrase:
         raise ValueError("execution.live_safety.required_ack_phrase cannot be empty")

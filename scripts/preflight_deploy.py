@@ -103,9 +103,11 @@ def main() -> int:
     runtime_category = str(runtime_exchange_cfg.get("category", "linear")).lower()
     runtime_assume_filled = bool(runtime_config.get("execution", {}).get("assume_filled_on_submit", False))
     runtime_live_safety = runtime_config.get("execution", {}).get("live_safety", {})
+    runtime_bybit_cfg = runtime_config.get("execution", {}).get("bybit", {})
     runtime_allow_unprotected_spot = bool(
         runtime_live_safety.get("allow_unprotected_spot_entry", False)
     )
+    runtime_spot_native_tpsl = bool(runtime_bybit_cfg.get("spot_native_tpsl_on_entry", True))
     runtime_state_file = str(runtime_config.get("state_file", ""))
     storage_info = describe_json_storage_backend(path=runtime_state_file, purpose="state")
     storage_backend = storage_info.get("backend", "file")
@@ -235,10 +237,11 @@ def main() -> int:
                 "Spot live mode must set execution.assume_filled_on_submit=false "
                 "to avoid fake fills and state drift."
             )
-        if runtime_category == "spot" and not runtime_allow_unprotected_spot:
+        if runtime_category == "spot" and not runtime_spot_native_tpsl and not runtime_allow_unprotected_spot:
             failures.append(
-                "Spot live mode is blocked by safety guard until you acknowledge unprotected spot exits. "
-                "Set execution.live_safety.allow_unprotected_spot_entry=true only if you accept this risk."
+                "Spot live mode has no native TP/SL-on-entry protection and no explicit risk acknowledgment. "
+                "Set execution.bybit.spot_native_tpsl_on_entry=true (recommended), "
+                "or set execution.live_safety.allow_unprotected_spot_entry=true only if you accept this risk."
             )
         if args.target == "vercel" and comp_enabled and runtime_state_file.startswith("/tmp/"):
             warnings.append(

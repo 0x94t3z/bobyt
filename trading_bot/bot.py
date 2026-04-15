@@ -613,11 +613,87 @@ def get_compounding_config(config: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
+def get_autoscale_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    risk_cfg = config.get("risk", {})
+    comp_cfg = risk_cfg.get("compounding", {})
+    autoscale_cfg = comp_cfg.get("autoscale", {})
+    return {
+        "enabled": bool(autoscale_cfg.get("enabled", False)),
+        "lookback_days": max(0, int(to_float(autoscale_cfg.get("lookback_days"), 3))),
+        "min_trades": max(0, int(to_float(autoscale_cfg.get("min_trades"), 30))),
+        "min_win_rate_pct": max(0.0, to_float(autoscale_cfg.get("min_win_rate_pct"), 52.0)),
+        "min_profit_factor": max(0.0, to_float(autoscale_cfg.get("min_profit_factor"), 1.2)),
+        "min_net_pnl_usdt": to_float(autoscale_cfg.get("min_net_pnl_usdt"), 0.0),
+        "max_drawdown_limit_usdt": max(0.0, to_float(autoscale_cfg.get("max_drawdown_limit_usdt"), 0.0)),
+    }
+
+
+def evaluate_autoscale_eligibility(
+    config: Dict[str, Any],
+    state: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    autoscale_cfg = get_autoscale_config(config)
+    if not autoscale_cfg.get("enabled", False):
+        return {
+            "enabled": False,
+            "eligible": True,
+            "reason": "Autoscale disabled",
+            "metrics": {},
+        }
+
+    trade_history = []
+    if isinstance(state, dict):
+        raw_history = state.get("trade_history", [])
+        if isinstance(raw_history, list):
+            trade_history = raw_history
+    lookback_days = int(autoscale_cfg.get("lookback_days", 0))
+    metrics = compute_trade_metrics(
+        trade_history,
+        lookback_days=lookback_days if lookback_days > 0 else None,
+    )
+
+    total_trades = int(metrics.get("total_trades", 0))
+    win_rate = to_float(metrics.get("win_rate_pct"), 0.0)
+    profit_factor = metrics.get("profit_factor", 0.0)
+    net_pnl = to_float(metrics.get("net_pnl_usdt"), 0.0)
+    max_drawdown = to_float(metrics.get("max_drawdown_usdt"), 0.0)
+
+    checks: List[str] = []
+    if total_trades < int(autoscale_cfg.get("min_trades", 0)):
+        checks.append(
+            f"need trades>={int(autoscale_cfg.get('min_trades', 0))} (got {total_trades})"
+        )
+    if win_rate < to_float(autoscale_cfg.get("min_win_rate_pct"), 0.0):
+        checks.append(
+            f"need win_rate>={to_float(autoscale_cfg.get('min_win_rate_pct'), 0.0):.2f}% "
+            f"(got {win_rate:.2f}%)"
+        )
+    min_pf = to_float(autoscale_cfg.get("min_profit_factor"), 0.0)
+    if min_pf > 0:
+        pf_value = float("inf") if profit_factor == float("inf") else to_float(profit_factor, 0.0)
+        if pf_value < min_pf:
+            checks.append(f"need profit_factor>={min_pf:.2f} (got {pf_value:.2f})")
+    min_net_pnl = to_float(autoscale_cfg.get("min_net_pnl_usdt"), 0.0)
+    if net_pnl < min_net_pnl:
+        checks.append(f"need net_pnl>={min_net_pnl:.2f} (got {net_pnl:.2f})")
+    max_dd_limit = to_float(autoscale_cfg.get("max_drawdown_limit_usdt"), 0.0)
+    if max_dd_limit > 0 and max_drawdown > max_dd_limit:
+        checks.append(f"need max_drawdown<={max_dd_limit:.2f} (got {max_drawdown:.2f})")
+
+    eligible = len(checks) == 0
+    return {
+        "enabled": True,
+        "eligible": eligible,
+        "reason": "OK" if eligible else "; ".join(checks),
+        "metrics": metrics,
+    }
+
+
 def get_risk_limits(
     config: Dict[str, Any],
     state: Optional[Dict[str, Any]] = None,
     live_equity_override_usdt: Optional[float] = None,
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     risk_cfg = config.get("risk", {})
     base_equity = to_float(risk_cfg.get("account_equity_usdt"), 0.0)
     realized_pnl = get_state_total_realized_pnl_usdt(state)
@@ -626,11 +702,16 @@ def get_risk_limits(
     compounding_equity = live_equity if live_equity > 0 else effective_equity
     risk_per_trade_pct = to_float(risk_cfg.get("risk_per_trade_pct"), 0.0)
     max_daily_loss_pct = to_float(risk_cfg.get("max_daily_loss_pct"), 0.0)
-    max_position_notional = to_float(risk_cfg.get("max_position_notional_usdt"), 0.0)
+    base_max_position_notional = to_float(risk_cfg.get("max_position_notional_usdt"), 0.0)
+    max_position_notional = base_max_position_notional
 
     comp_cfg = get_compounding_config(config)
+    autoscale_eval = evaluate_autoscale_eligibility(config=config, state=state)
+    autoscale_enabled = bool(autoscale_eval.get("enabled", False))
+    autoscale_allowed = bool(autoscale_eval.get("eligible", True))
     if (
         bool(comp_cfg.get("enabled"))
+        and autoscale_allowed
         and to_float(comp_cfg.get("position_notional_pct_of_equity"), 0.0) > 0
         and compounding_equity > 0
     ):
@@ -643,9 +724,12 @@ def get_risk_limits(
             dynamic_notional = max(dynamic_notional, min_notional)
         if max_notional > 0:
             dynamic_notional = min(dynamic_notional, max_notional)
+        # Autoscale mode should only increase size above base cap, never reduce it.
+        if autoscale_enabled:
+            dynamic_notional = max(dynamic_notional, base_max_position_notional)
         max_position_notional = dynamic_notional
 
-    return {
+    risk_limits = {
         "equity": base_equity,
         "effective_equity_usdt": effective_equity,
         "compounding_equity_usdt": compounding_equity,
@@ -654,6 +738,11 @@ def get_risk_limits(
         "daily_loss_limit_usdt": base_equity * (max_daily_loss_pct / 100.0),
         "max_position_notional_usdt": max_position_notional,
     }
+    if autoscale_enabled:
+        risk_limits["autoscale_enabled"] = True
+        risk_limits["autoscale_allowed"] = autoscale_allowed
+        risk_limits["autoscale_reason"] = str(autoscale_eval.get("reason", ""))
+    return risk_limits
 
 
 def is_cooldown_active(risk_state: Dict[str, Any]) -> bool:
@@ -2903,6 +2992,23 @@ def validate_config(config: Dict[str, Any]) -> None:
         ):
             if key in comp_cfg and to_float(comp_cfg.get(key), 0) < 0:
                 raise ValueError(f"risk.compounding.{key} must be >= 0")
+        autoscale_cfg = comp_cfg.get("autoscale", {})
+        if autoscale_cfg and not isinstance(autoscale_cfg, dict):
+            raise ValueError("risk.compounding.autoscale must be an object")
+        if isinstance(autoscale_cfg, dict):
+            if "enabled" in autoscale_cfg and not isinstance(autoscale_cfg.get("enabled"), bool):
+                raise ValueError("risk.compounding.autoscale.enabled must be boolean")
+            if "lookback_days" in autoscale_cfg and int(to_float(autoscale_cfg.get("lookback_days"), 0)) < 0:
+                raise ValueError("risk.compounding.autoscale.lookback_days must be >= 0")
+            if "min_trades" in autoscale_cfg and int(to_float(autoscale_cfg.get("min_trades"), 0)) < 0:
+                raise ValueError("risk.compounding.autoscale.min_trades must be >= 0")
+            for key in (
+                "min_win_rate_pct",
+                "min_profit_factor",
+                "max_drawdown_limit_usdt",
+            ):
+                if key in autoscale_cfg and to_float(autoscale_cfg.get(key), 0) < 0:
+                    raise ValueError(f"risk.compounding.autoscale.{key} must be >= 0")
     costs_cfg = config.get("execution_costs", {})
     for key in ("entry_fee_pct", "exit_fee_pct", "entry_slippage_pct", "exit_slippage_pct"):
         if key in costs_cfg and to_float(costs_cfg.get(key), 0) < 0:

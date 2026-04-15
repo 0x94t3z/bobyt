@@ -118,7 +118,7 @@ Main file: `configs/config.json`
 | `spot_discovery` | `enabled`, `add_count`, `min_turnover_usdt`, `min_price_change_pct` | Auto-adds trending Bybit spot pairs |
 | `price_filter` | `enabled`, `max_price_usdt`, `apply_to_watchlist`, `apply_to_spot_discovery` | Hard gate by token price (e.g. only <= `0.1`) |
 | `strategy` | EMA/RSI/pullback/TP/SL | Entry/exit behavior |
-| `risk` | `risk_per_trade_pct`, `max_position_notional_usdt`, `max_open_positions`, `max_daily_loss_pct` | Position sizing + circuit breakers |
+| `risk` | `risk_per_trade_pct`, `max_position_notional_usdt`, `max_open_positions`, `max_daily_loss_pct`, `compounding.autoscale` | Position sizing + circuit breakers |
 | `execution` | `mode`, `assume_filled_on_submit`, `live_safety` | Paper vs live and live locks |
 | `liquidity_filter` | `max_spread_pct`, `min_turnover_24h_usdt` | Avoid illiquid setups |
 | `journal` | `enabled`, `max_closed_trades` | Performance tracking history |
@@ -137,6 +137,18 @@ Switch preset:
 ```bash
 cp configs/presets/paper.balanced.json configs/config.json
 ```
+
+### Auto-Scale Gating (optional)
+
+If `risk.compounding.autoscale.enabled=true`, compounding only scales position notional above base cap when performance thresholds pass:
+
+- minimum trades in lookback window
+- minimum win rate
+- minimum profit factor
+- minimum net PnL
+- maximum allowed drawdown
+
+If thresholds are not met, bot stays at base `risk.max_position_notional_usdt`.
 
 ## Environment Variables
 

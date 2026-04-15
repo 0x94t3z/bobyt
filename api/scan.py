@@ -310,7 +310,6 @@ class handler(BaseHTTPRequestHandler):
       const $ = (id) => document.getElementById(id);
       const statusEl = $("status");
       const tokenInput = $("token");
-      const TOKEN_STORAGE_KEY = "bobyt_scan_token";
       let timer = null;
 
       function text(v) {
@@ -453,10 +452,6 @@ class handler(BaseHTTPRequestHandler):
 
       $("refreshBtn").addEventListener("click", fetchStatus);
       $("refresh").addEventListener("change", applyAutoRefresh);
-      tokenInput.value = window.sessionStorage.getItem(TOKEN_STORAGE_KEY) || "";
-      tokenInput.addEventListener("change", () => {
-        window.sessionStorage.setItem(TOKEN_STORAGE_KEY, tokenInput.value || "");
-      });
       applyAutoRefresh();
       fetchStatus();
     </script>

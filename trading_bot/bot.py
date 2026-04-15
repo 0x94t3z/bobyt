@@ -563,11 +563,17 @@ def get_compounding_config(config: Dict[str, Any]) -> Dict[str, float]:
     }
 
 
-def get_risk_limits(config: Dict[str, Any], state: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+def get_risk_limits(
+    config: Dict[str, Any],
+    state: Optional[Dict[str, Any]] = None,
+    live_equity_override_usdt: Optional[float] = None,
+) -> Dict[str, float]:
     risk_cfg = config.get("risk", {})
     base_equity = to_float(risk_cfg.get("account_equity_usdt"), 0.0)
     realized_pnl = get_state_total_realized_pnl_usdt(state)
     effective_equity = max(0.0, base_equity + realized_pnl)
+    live_equity = to_float(live_equity_override_usdt, 0.0)
+    compounding_equity = live_equity if live_equity > 0 else effective_equity
     risk_per_trade_pct = to_float(risk_cfg.get("risk_per_trade_pct"), 0.0)
     max_daily_loss_pct = to_float(risk_cfg.get("max_daily_loss_pct"), 0.0)
     max_position_notional = to_float(risk_cfg.get("max_position_notional_usdt"), 0.0)
@@ -576,9 +582,9 @@ def get_risk_limits(config: Dict[str, Any], state: Optional[Dict[str, Any]] = No
     if (
         bool(comp_cfg.get("enabled"))
         and to_float(comp_cfg.get("position_notional_pct_of_equity"), 0.0) > 0
-        and effective_equity > 0
+        and compounding_equity > 0
     ):
-        dynamic_notional = effective_equity * (
+        dynamic_notional = compounding_equity * (
             to_float(comp_cfg.get("position_notional_pct_of_equity"), 0.0) / 100.0
         )
         min_notional = to_float(comp_cfg.get("min_position_notional_usdt"), 0.0)
@@ -592,8 +598,10 @@ def get_risk_limits(config: Dict[str, Any], state: Optional[Dict[str, Any]] = No
     return {
         "equity": base_equity,
         "effective_equity_usdt": effective_equity,
-        "risk_per_trade_usdt": effective_equity * (risk_per_trade_pct / 100.0),
-        "daily_loss_limit_usdt": effective_equity * (max_daily_loss_pct / 100.0),
+        "compounding_equity_usdt": compounding_equity,
+        "risk_per_trade_usdt": compounding_equity * (risk_per_trade_pct / 100.0),
+        # Keep daily circuit-breaker anchored to configured base equity.
+        "daily_loss_limit_usdt": base_equity * (max_daily_loss_pct / 100.0),
         "max_position_notional_usdt": max_position_notional,
     }
 
@@ -633,12 +641,20 @@ def ensure_risk_state(state: Dict[str, Any]) -> Dict[str, Any]:
     return risk_state
 
 
-def update_circuit_breaker_status(config: Dict[str, Any], state: Dict[str, Any]) -> None:
+def update_circuit_breaker_status(
+    config: Dict[str, Any],
+    state: Dict[str, Any],
+    live_equity_override_usdt: Optional[float] = None,
+) -> None:
     risk_cfg = config.get("risk", {})
     risk_state = ensure_risk_state(state)
     pause_on_limit = bool(risk_cfg.get("pause_on_limit", True))
     max_consecutive_losses = int(risk_cfg.get("max_consecutive_losses", 0))
-    limits = get_risk_limits(config, state=state)
+    limits = get_risk_limits(
+        config,
+        state=state,
+        live_equity_override_usdt=live_equity_override_usdt,
+    )
     daily_limit = limits["daily_loss_limit_usdt"]
 
     trigger_reason = ""
@@ -864,6 +880,65 @@ def fetch_bybit_live_position_for_symbol(
         category=category,
         symbol=symbol,
     )
+
+
+def fetch_bybit_live_equity_usdt(
+    base_urls: List[str],
+    api_key: str,
+    api_secret: str,
+    recv_window: int,
+) -> float:
+    """
+    Best-effort fetch for live account equity in USDT terms.
+    Tries common Bybit account types and multiple fields for compatibility.
+    """
+    account_types = ["UNIFIED", "CONTRACT", "SPOT"]
+    errors: List[str] = []
+    for account_type in account_types:
+        try:
+            response = bybit_signed_get_with_fallback(
+                base_urls=base_urls,
+                path="/v5/account/wallet-balance",
+                params={"accountType": account_type},
+                api_key=api_key,
+                api_secret=api_secret,
+                recv_window=recv_window,
+            )
+            if response.get("retCode") != 0:
+                errors.append(
+                    f"{account_type}: retCode={response.get('retCode')} "
+                    f"retMsg={response.get('retMsg')}"
+                )
+                continue
+
+            rows = response.get("result", {}).get("list", [])
+            if not rows:
+                errors.append(f"{account_type}: empty account rows")
+                continue
+            row = rows[0]
+
+            # Preferred aggregate fields for UTA/derivatives.
+            for key in ("totalEquity", "totalWalletBalance", "totalAvailableBalance"):
+                value = to_float(row.get(key), 0.0)
+                if value > 0:
+                    return value
+
+            # Fallback: coin-level balances.
+            coins = row.get("coin", [])
+            if isinstance(coins, list):
+                for coin in coins:
+                    symbol = str(coin.get("coin", "")).upper()
+                    if symbol not in {"USDT", "USDC"}:
+                        continue
+                    for key in ("equity", "walletBalance", "availableToWithdraw"):
+                        value = to_float(coin.get(key), 0.0)
+                        if value > 0:
+                            return value
+            errors.append(f"{account_type}: no positive equity field found")
+        except Exception as e:
+            errors.append(f"{account_type}: {e}")
+
+    raise RuntimeError("Unable to fetch live equity from Bybit: " + " | ".join(errors))
 
 
 def is_testnet_url(base_url: str) -> bool:
@@ -1587,6 +1662,7 @@ def enrich_result_with_risk_and_orders(
     result: Dict[str, Any],
     qty_constraints: Optional[Dict[str, float]] = None,
     state: Optional[Dict[str, Any]] = None,
+    live_equity_override_usdt: Optional[float] = None,
 ) -> None:
     entry = to_float(result.get("wait_price"), 0.0)
     sl = to_float(result.get("sl_price"), 0.0)
@@ -1618,7 +1694,11 @@ def enrich_result_with_risk_and_orders(
             result["order_plan"] = None
             return
 
-    limits = get_risk_limits(config, state=state)
+    limits = get_risk_limits(
+        config,
+        state=state,
+        live_equity_override_usdt=live_equity_override_usdt,
+    )
     risk_budget = limits["risk_per_trade_usdt"]
     raw_qty = calculate_position_size(entry, sl, risk_budget)
     max_notional = limits.get("max_position_notional_usdt", 0.0)
@@ -1745,7 +1825,6 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         state["live_pending_entries"] = live_pending_entries_state
     ensure_trade_history_state(state)
     risk_state = ensure_risk_state(state)
-    update_circuit_breaker_status(config=config, state=state)
 
     exchange_cfg = config["exchange"]
     exchange_name = str(exchange_cfg.get("name", "binance")).lower()
@@ -1774,6 +1853,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     live_synced_positions: Dict[str, Dict[str, Any]] = {}
     live_synced_pending_entries: Dict[str, Dict[str, Any]] = {}
     live_sync_errors: Dict[str, str] = {}
+    live_equity_override_usdt: Optional[float] = None
 
     symbol_jobs: List[Dict[str, str]] = []
     seen_symbols = set()
@@ -1828,6 +1908,28 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                 )
             except Exception as e:
                 cycle_errors.append(f"[INSTRUMENT:{symbol}] Error: {e}")
+
+        # Live compounding prefers real wallet equity to reduce drift from ephemeral state.
+        if str(exec_ctx.get("mode", "paper")).lower() == "live":
+            api_key = str(exec_ctx.get("api_key", ""))
+            api_secret = str(exec_ctx.get("api_secret", ""))
+            recv_window = int(exec_ctx.get("recv_window", 5000))
+            if api_key and api_secret:
+                try:
+                    live_equity_override_usdt = fetch_bybit_live_equity_usdt(
+                        base_urls=base_urls,
+                        api_key=api_key,
+                        api_secret=api_secret,
+                        recv_window=recv_window,
+                    )
+                except Exception as e:
+                    cycle_errors.append(f"[LIVE_EQUITY] Warning: {e}")
+
+    update_circuit_breaker_status(
+        config=config,
+        state=state,
+        live_equity_override_usdt=live_equity_override_usdt,
+    )
 
     if live_sync_required:
         api_key = str(exec_ctx.get("api_key", ""))
@@ -1936,6 +2038,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                 result=result,
                 qty_constraints=qty_constraints_map.get(f"{category_for_symbol}:{symbol}"),
                 state=state,
+                live_equity_override_usdt=live_equity_override_usdt,
             )
             max_price_usdt = to_float(price_filter_cfg.get("max_price_usdt"), 0.0)
             apply_by_source = (
@@ -2136,7 +2239,11 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         },
                                     },
                                 )
-                                update_circuit_breaker_status(config=config, state=state)
+                                update_circuit_breaker_status(
+                                    config=config,
+                                    state=state,
+                                    live_equity_override_usdt=live_equity_override_usdt,
+                                )
 
         except urllib.error.URLError as e:
             cycle_errors.append(f"[{symbol}] Network/API error: {e}")
@@ -2144,6 +2251,11 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
             cycle_errors.append(f"[{symbol}] Error: {e}")
 
     trade_history = ensure_trade_history_state(state)
+    limits_snapshot = get_risk_limits(
+        config,
+        state=state,
+        live_equity_override_usdt=live_equity_override_usdt,
+    )
     performance = {
         "overall": compute_trade_metrics(trade_history),
         "last_7d": compute_trade_metrics(trade_history, lookback_days=7),
@@ -2161,6 +2273,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         "auto_added_symbols": auto_added_symbols,
         "scanned_symbols": [job["symbol"] for job in symbol_jobs],
         "risk_state": risk_state,
+        "risk_limits": limits_snapshot,
         "execution_events": execution_events,
         "performance": performance,
         "recent_closed_trades": recent_closed_trades,

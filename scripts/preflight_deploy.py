@@ -95,6 +95,9 @@ def main() -> int:
     exec_cfg = config.get("execution", {})
     mode = str(exec_cfg.get("mode", "paper")).lower()
     runtime_mode = str(runtime_config.get("execution", {}).get("mode", "paper")).lower()
+    runtime_state_file = str(runtime_config.get("state_file", ""))
+    comp_cfg = config.get("risk", {}).get("compounding", {})
+    comp_enabled = bool(comp_cfg.get("enabled", False))
     exchange_cfg = config.get("exchange", {})
     base_url = str(exchange_cfg.get("base_url", ""))
     required_ack = str(
@@ -201,6 +204,11 @@ def main() -> int:
         if max_notional > 100:
             warnings.append(
                 f"max_position_notional_usdt={max_notional:.2f} is high. Confirm this is intentional."
+            )
+        if args.target == "vercel" and comp_enabled and runtime_state_file.startswith("/tmp/"):
+            warnings.append(
+                "Compounding is enabled while runtime state file is ephemeral "
+                f"({runtime_state_file}). Size may drift after cold starts unless live equity fetch is available."
             )
 
     print("=== Deployment Preflight ===")

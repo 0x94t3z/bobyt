@@ -538,6 +538,7 @@ class handler(BaseHTTPRequestHandler):
                     "pending_entry_symbols": pending_entry_symbols,
                 },
                 "risk_state": cycle.get("risk_state", {}),
+                "risk_limits": cycle.get("risk_limits", {}),
                 "performance": cycle.get("performance", {}),
             }
 

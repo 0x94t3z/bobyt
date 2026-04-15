@@ -86,10 +86,17 @@ def fetch_bybit_instrument_constraints(
     lot = row.get("lotSizeFilter", {})
     price_filter = row.get("priceFilter", {})
     status = str(row.get("status", "")).strip()
+    qty_step = to_float(lot.get("qtyStep"), 0.0)
+    if qty_step <= 0:
+        # Spot instruments can expose basePrecision without qtyStep.
+        qty_step = to_float(lot.get("basePrecision"), 0.0)
+    if qty_step <= 0:
+        # Last-resort fallback: minOrderQty still gives a valid floor granularity.
+        qty_step = to_float(lot.get("minOrderQty"), 0.0)
     return {
         "min_qty": to_float(lot.get("minOrderQty"), 0.0),
         "max_qty": to_float(lot.get("maxOrderQty"), 0.0),
-        "qty_step": to_float(lot.get("qtyStep"), 0.0),
+        "qty_step": qty_step,
         "tick_size": to_float(price_filter.get("tickSize"), 0.0),
         "status": status,
         "tradable": status.upper() == "TRADING",

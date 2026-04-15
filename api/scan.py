@@ -86,6 +86,26 @@ def resolve_status_file() -> str:
     return DEFAULT_VERCEL_STATUS_FILE if is_running_on_vercel() else DEFAULT_STATUS_FILE
 
 
+def extract_open_symbols(cycle: Dict[str, Any]) -> List[str]:
+    live_positions = cycle.get("live_open_positions", {})
+    if isinstance(live_positions, dict) and live_positions:
+        return sorted(str(k) for k in live_positions.keys())
+    state_positions = cycle.get("state", {}).get("positions", {})
+    if isinstance(state_positions, dict) and state_positions:
+        return sorted(str(k) for k in state_positions.keys())
+    return []
+
+
+def extract_pending_entry_symbols(cycle: Dict[str, Any]) -> List[str]:
+    live_pending = cycle.get("live_pending_entries", {})
+    if isinstance(live_pending, dict) and live_pending:
+        return sorted(str(k) for k in live_pending.keys())
+    state_pending = cycle.get("state", {}).get("live_pending_entries", {})
+    if isinstance(state_pending, dict) and state_pending:
+        return sorted(str(k) for k in state_pending.keys())
+    return []
+
+
 class handler(BaseHTTPRequestHandler):
     def _set_headers(self, status_code: int = 200, content_type: str = "application/json") -> None:
         self.send_response(status_code)
@@ -191,7 +211,7 @@ class handler(BaseHTTPRequestHandler):
       }
       .stats {
         display: grid;
-        grid-template-columns: repeat(5, 1fr);
+        grid-template-columns: repeat(7, 1fr);
         gap: 10px;
         margin-top: 12px;
       }
@@ -252,6 +272,8 @@ class handler(BaseHTTPRequestHandler):
         <div class="stat"><div class="k">Scanned</div><div class="v" id="m_scanned">-</div></div>
         <div class="stat"><div class="k">Buy Signals</div><div class="v ok" id="m_buy">-</div></div>
         <div class="stat"><div class="k">Wait Signals</div><div class="v warn" id="m_wait">-</div></div>
+        <div class="stat"><div class="k">Open Positions</div><div class="v" id="m_open">-</div></div>
+        <div class="stat"><div class="k">Pending Entries</div><div class="v warn" id="m_pending">-</div></div>
         <div class="stat"><div class="k">Errors</div><div class="v err" id="m_err">-</div></div>
         <div class="stat"><div class="k">Execution</div><div class="v" id="m_exec">-</div></div>
       </div>
@@ -266,6 +288,20 @@ class handler(BaseHTTPRequestHandler):
           </thead>
           <tbody id="rows">
             <tr><td colspan="8" class="muted">No data yet. Waiting backend snapshot.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="box">
+        <h3>Execution Events</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th><th>Symbol</th><th>Status</th><th>Submitted</th><th>Message</th>
+            </tr>
+          </thead>
+          <tbody id="execRows">
+            <tr><td colspan="5" class="muted">No execution events in this snapshot.</td></tr>
           </tbody>
         </table>
       </div>
@@ -288,6 +324,14 @@ class handler(BaseHTTPRequestHandler):
         return "";
       }
 
+      function eventStatus(ev) {
+        const r = ev && ev.result ? ev.result : {};
+        if (r.success && r.submitted) return "ORDER_SUBMITTED";
+        if (r.success && !r.submitted) return "NOT_SUBMITTED";
+        if (!r.success) return "FAILED";
+        return "-";
+      }
+
       async function fetchStatus() {
         const url = "/api/status";
 
@@ -303,15 +347,20 @@ class handler(BaseHTTPRequestHandler):
             $("m_scanned").textContent = "-";
             $("m_buy").textContent = "-";
             $("m_wait").textContent = "-";
+            $("m_open").textContent = "-";
+            $("m_pending").textContent = "-";
             $("m_err").textContent = "-";
             $("m_exec").textContent = "-";
             $("rows").innerHTML = '<tr><td colspan="8" class="muted">No backend snapshot yet. Trigger /api/scan from cron first.</td></tr>';
+            $("execRows").innerHTML = '<tr><td colspan="5" class="muted">No execution events yet.</td></tr>';
             statusEl.textContent = "No backend snapshot yet. Run /api/scan (cron/manual) first.";
             return;
           }
           $("m_scanned").textContent = text(data.summary?.scanned);
           $("m_buy").textContent = text(data.summary?.buy_signals);
           $("m_wait").textContent = text(data.summary?.wait_signals);
+          $("m_open").textContent = text(data.positions?.open_count);
+          $("m_pending").textContent = text(data.positions?.pending_entry_count);
           $("m_err").textContent = text(data.summary?.errors);
           $("m_exec").textContent = text((data.execution_mode || "").toUpperCase());
 
@@ -332,6 +381,26 @@ class handler(BaseHTTPRequestHandler):
                 <td>${text(r.note)}</td>
               </tr>`
             ).join("");
+          }
+
+          const execEvents = data.execution_events || [];
+          const execTbody = $("execRows");
+          if (!execEvents.length) {
+            execTbody.innerHTML = '<tr><td colspan="5" class="muted">No execution events in this snapshot.</td></tr>';
+          } else {
+            execTbody.innerHTML = execEvents.slice(-10).reverse().map((ev) => {
+              const result = ev.result || {};
+              const status = eventStatus(ev);
+              const submitted = result.submitted ? "YES" : "NO";
+              const msg = text(result.message || "");
+              return `<tr>
+                <td>${text(ev.time)}</td>
+                <td>${text(ev.symbol)}</td>
+                <td class="${status === "FAILED" ? "err" : (status === "ORDER_SUBMITTED" ? "ok" : "warn")}">${status}</td>
+                <td>${submitted}</td>
+                <td>${msg}</td>
+              </tr>`;
+            }).join("");
           }
           statusEl.textContent = "Backend last scan: " + text(data.time) + " | state: " + text(data.state_file);
         } catch (e) {
@@ -432,6 +501,9 @@ class handler(BaseHTTPRequestHandler):
             results = cycle.get("results", [])
             alerts = cycle.get("alerts", [])
             errors = cycle.get("errors", [])
+            execution_events = cycle.get("execution_events", [])
+            open_symbols = extract_open_symbols(cycle)
+            pending_entry_symbols = extract_pending_entry_symbols(cycle)
             execution_mode = str(
                 cycle.get("config", runtime_config).get("execution", {}).get("mode", "paper")
             ).lower()
@@ -458,7 +530,13 @@ class handler(BaseHTTPRequestHandler):
                 "alerts": alerts,
                 "errors": errors,
                 "top_results": compact_results(results, limit=10),
-                "execution_events": cycle.get("execution_events", []),
+                "execution_events": execution_events,
+                "positions": {
+                    "open_count": len(open_symbols),
+                    "open_symbols": open_symbols,
+                    "pending_entry_count": len(pending_entry_symbols),
+                    "pending_entry_symbols": pending_entry_symbols,
+                },
                 "risk_state": cycle.get("risk_state", {}),
                 "performance": cycle.get("performance", {}),
             }

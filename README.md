@@ -225,7 +225,7 @@ Authorization: Bearer <TRADING_BOT_SCAN_TOKEN>
 ```
 
 Recommended schedule: match cron interval to your strategy candle interval.  
-Current `configs/config.json` uses `15m`, so run cron every 15 minutes.
+Current `configs/config.json` uses `5m`, so run cron every 5 minutes.
 
 ### Manual API test (`/api/scan` is POST-only)
 

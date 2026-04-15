@@ -95,6 +95,9 @@ def main() -> int:
     exec_cfg = config.get("execution", {})
     mode = str(exec_cfg.get("mode", "paper")).lower()
     runtime_mode = str(runtime_config.get("execution", {}).get("mode", "paper")).lower()
+    runtime_exchange_cfg = runtime_config.get("exchange", {})
+    runtime_category = str(runtime_exchange_cfg.get("category", "linear")).lower()
+    runtime_assume_filled = bool(runtime_config.get("execution", {}).get("assume_filled_on_submit", False))
     runtime_state_file = str(runtime_config.get("state_file", ""))
     comp_cfg = config.get("risk", {}).get("compounding", {})
     comp_enabled = bool(comp_cfg.get("enabled", False))
@@ -204,6 +207,11 @@ def main() -> int:
         if max_notional > 100:
             warnings.append(
                 f"max_position_notional_usdt={max_notional:.2f} is high. Confirm this is intentional."
+            )
+        if runtime_category == "spot" and runtime_assume_filled:
+            failures.append(
+                "Spot live mode must set execution.assume_filled_on_submit=false "
+                "to avoid fake fills and state drift."
             )
         if args.target == "vercel" and comp_enabled and runtime_state_file.startswith("/tmp/"):
             warnings.append(

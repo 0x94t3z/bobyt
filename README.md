@@ -151,6 +151,8 @@ The app auto-loads `.env` locally. Keep real secrets only in `.env` or platform 
 | `TRADING_BOT_LIVE_ACK` | exact phrase: `I_UNDERSTAND_LIVE_TRADING_RISK` |
 | `TRADING_BOT_ALLOW_MAINNET` | `true` when using mainnet URL |
 
+For Bybit **spot live mode**, set `execution.assume_filled_on_submit` to `false` so fills are exchange-synced (safer than simulated fills).
+
 ### Vercel/API specific
 
 | Variable | Purpose |

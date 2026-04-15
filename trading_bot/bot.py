@@ -99,6 +99,7 @@ def build_default_state() -> Dict[str, Any]:
         "last_alerts": {},
         "live_open_positions": {},
         "live_pending_entries": {},
+        "spot_entry_hints": {},
     }
 
 
@@ -251,6 +252,14 @@ def normalize_bybit_category(raw: Any, fallback: str = "linear") -> str:
 
 def get_bybit_default_category(exchange_cfg: Dict[str, Any]) -> str:
     return normalize_bybit_category(exchange_cfg.get("category", "linear"), fallback="linear")
+
+
+def split_symbol_base_quote(symbol: str) -> Dict[str, str]:
+    symbol_up = str(symbol).upper().strip()
+    for quote in ("USDT", "USDC", "BTC", "ETH"):
+        if symbol_up.endswith(quote) and len(symbol_up) > len(quote):
+            return {"base": symbol_up[: -len(quote)], "quote": quote}
+    return {"base": symbol_up, "quote": ""}
 
 
 def build_exit_prices(entry_price: float, tp_pct: float, sl_pct: float) -> Dict[str, float]:
@@ -762,6 +771,31 @@ def build_bybit_order_plan(
     }
 
 
+def build_bybit_spot_exit_order_plan(
+    symbol: str,
+    qty: float,
+    order_group_id: str = "",
+) -> Optional[Dict[str, Any]]:
+    if qty <= 0:
+        return None
+    exit_order: Dict[str, Any] = {
+        "category": "spot",
+        "symbol": symbol,
+        "side": "Sell",
+        "orderType": "Market",
+        "qty": f"{qty:.6f}",
+    }
+    if order_group_id:
+        exit_order["orderLinkId"] = build_order_link_id(order_group_id, "sx")
+    return {
+        "plan_mode": "spot_exit_market",
+        "order_group_id": order_group_id or "",
+        "exit_order": {
+            **exit_order,
+        },
+    }
+
+
 def build_json_compact(payload: Dict[str, Any]) -> str:
     return client_build_json_compact(payload)
 
@@ -967,6 +1001,66 @@ def fetch_bybit_live_equity_usdt(
     raise RuntimeError("Unable to fetch live equity from Bybit: " + " | ".join(errors))
 
 
+def fetch_bybit_wallet_coin_balances(
+    base_urls: List[str],
+    api_key: str,
+    api_secret: str,
+    recv_window: int,
+) -> Dict[str, Dict[str, float]]:
+    account_types = ["UNIFIED", "SPOT", "CONTRACT"]
+    errors: List[str] = []
+    for account_type in account_types:
+        try:
+            response = bybit_signed_get_with_fallback(
+                base_urls=base_urls,
+                path="/v5/account/wallet-balance",
+                params={"accountType": account_type},
+                api_key=api_key,
+                api_secret=api_secret,
+                recv_window=recv_window,
+            )
+            if response.get("retCode") != 0:
+                errors.append(
+                    f"{account_type}: retCode={response.get('retCode')} "
+                    f"retMsg={response.get('retMsg')}"
+                )
+                continue
+            rows = response.get("result", {}).get("list", [])
+            if not isinstance(rows, list) or not rows:
+                errors.append(f"{account_type}: empty account rows")
+                continue
+
+            coin_balances: Dict[str, Dict[str, float]] = {}
+            for row in rows:
+                coins = row.get("coin", [])
+                if not isinstance(coins, list):
+                    continue
+                for coin in coins:
+                    coin_name = str(coin.get("coin", "")).upper().strip()
+                    if not coin_name:
+                        continue
+                    wallet_qty = to_float(coin.get("walletBalance"), 0.0)
+                    available_qty = to_float(coin.get("availableToWithdraw"), wallet_qty)
+                    free_qty = to_float(coin.get("free"), available_qty)
+                    if wallet_qty <= 0 and available_qty <= 0 and free_qty <= 0:
+                        continue
+                    bucket = coin_balances.setdefault(
+                        coin_name,
+                        {"wallet": 0.0, "available": 0.0, "free": 0.0},
+                    )
+                    bucket["wallet"] += max(0.0, wallet_qty)
+                    bucket["available"] += max(0.0, available_qty)
+                    bucket["free"] += max(0.0, free_qty)
+
+            if coin_balances:
+                return coin_balances
+            errors.append(f"{account_type}: no positive coin balances")
+        except Exception as e:
+            errors.append(f"{account_type}: {e}")
+
+    raise RuntimeError("Unable to fetch wallet coin balances from Bybit: " + " | ".join(errors))
+
+
 def is_testnet_url(base_url: str) -> bool:
     return "testnet" in str(base_url).lower()
 
@@ -1105,7 +1199,7 @@ def execute_bybit_order_plan(
                 rollback_results.append(f"{ref['order_key']}:cancel_error({e})")
         return {"results": rollback_results}
 
-    submit_order = ["entry_order", "take_profit_order", "stop_loss_order"]
+    submit_order = ["entry_order", "take_profit_order", "stop_loss_order", "exit_order"]
     for order_key in submit_order:
         payload = order_plan.get(order_key)
         if not payload:
@@ -1167,6 +1261,8 @@ def execute_bybit_order_plan(
     success_message = "Bybit order plan submitted."
     if plan_mode == "spot_entry_only":
         success_message = "Bybit spot entry order submitted."
+    elif plan_mode == "spot_exit_market":
+        success_message = "Bybit spot exit sell submitted."
 
     return {
         "mode": mode,
@@ -1852,12 +1948,16 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     last_alerts: Dict[str, str] = state.setdefault("last_alerts", {})
     live_open_positions_state: Dict[str, Dict[str, Any]] = state.setdefault("live_open_positions", {})
     live_pending_entries_state: Dict[str, Dict[str, Any]] = state.setdefault("live_pending_entries", {})
+    spot_entry_hints: Dict[str, Dict[str, Any]] = state.setdefault("spot_entry_hints", {})
     if not isinstance(live_open_positions_state, dict):
         live_open_positions_state = {}
         state["live_open_positions"] = live_open_positions_state
     if not isinstance(live_pending_entries_state, dict):
         live_pending_entries_state = {}
         state["live_pending_entries"] = live_pending_entries_state
+    if not isinstance(spot_entry_hints, dict):
+        spot_entry_hints = {}
+        state["spot_entry_hints"] = spot_entry_hints
     ensure_trade_history_state(state)
     risk_state = ensure_risk_state(state)
 
@@ -1879,7 +1979,6 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         exchange_name == "bybit"
         and str(exec_ctx.get("mode", "paper")).lower() == "live"
         and not bool(exec_ctx.get("assume_filled_on_submit"))
-        and default_bybit_category in BYBIT_DERIVATIVE_CATEGORIES
     )
 
     cycle_results: List[Dict[str, Any]] = []
@@ -1986,30 +2085,78 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
             cycle_errors.append(f"[LIVE_SYNC] {issue}")
             live_sync_errors["*"] = issue
         else:
-            synced_pairs: set[str] = set()
-            for job in symbol_jobs:
-                symbol = str(job["symbol"]).upper()
-                category = normalize_bybit_category(job["category"] or default_bybit_category, fallback="")
-                if category not in BYBIT_DERIVATIVE_CATEGORIES:
-                    continue
-                pair_key = f"{category}:{symbol}"
-                if pair_key in synced_pairs:
-                    continue
-                synced_pairs.add(pair_key)
+            spot_coin_balances: Dict[str, Dict[str, float]] = {}
+            if any(
+                normalize_bybit_category(job.get("category", ""), fallback=default_bybit_category) == "spot"
+                for job in symbol_jobs
+            ):
                 try:
-                    pos = fetch_bybit_live_position_for_symbol(
+                    spot_coin_balances = fetch_bybit_wallet_coin_balances(
                         base_urls=base_urls,
                         api_key=api_key,
                         api_secret=api_secret,
                         recv_window=recv_window,
-                        category=category,
-                        symbol=symbol,
                     )
-                    if pos:
-                        live_synced_positions[symbol] = pos
                 except Exception as e:
-                    live_sync_errors[symbol] = f"position sync failed: {e}"
-                    cycle_errors.append(f"[LIVE_SYNC:{symbol}] Position error: {e}")
+                    cycle_errors.append(f"[LIVE_SYNC:SPOT] Wallet error: {e}")
+
+            synced_pairs: set[str] = set()
+            for job in symbol_jobs:
+                symbol = str(job["symbol"]).upper()
+                category = normalize_bybit_category(job["category"] or default_bybit_category, fallback="")
+                pair_key = f"{category}:{symbol}"
+                if pair_key in synced_pairs:
+                    continue
+                synced_pairs.add(pair_key)
+                if category in BYBIT_DERIVATIVE_CATEGORIES:
+                    try:
+                        pos = fetch_bybit_live_position_for_symbol(
+                            base_urls=base_urls,
+                            api_key=api_key,
+                            api_secret=api_secret,
+                            recv_window=recv_window,
+                            category=category,
+                            symbol=symbol,
+                        )
+                        if pos:
+                            live_synced_positions[symbol] = pos
+                    except Exception as e:
+                        live_sync_errors[symbol] = f"position sync failed: {e}"
+                        cycle_errors.append(f"[LIVE_SYNC:{symbol}] Position error: {e}")
+
+                    try:
+                        open_orders = fetch_bybit_open_orders_for_symbol(
+                            base_urls=base_urls,
+                            api_key=api_key,
+                            api_secret=api_secret,
+                            recv_window=recv_window,
+                            category=category,
+                            symbol=symbol,
+                        )
+                        entry_orders = [
+                            row
+                            for row in open_orders
+                            if str(row.get("side", "")).upper() == "BUY"
+                            and not parse_env_bool(row.get("reduceOnly"), False)
+                        ]
+                        if entry_orders:
+                            row = entry_orders[0]
+                            live_synced_pending_entries[symbol] = {
+                                "order_id": str(row.get("orderId", "")),
+                                "order_link_id": str(row.get("orderLinkId", "")),
+                                "price": to_float(row.get("price"), 0.0),
+                                "qty": abs(to_float(row.get("qty"), 0.0)),
+                                "status": str(row.get("orderStatus", "")),
+                                "updated_at": now_utc_str(),
+                            }
+                    except Exception as e:
+                        if symbol not in live_sync_errors:
+                            live_sync_errors[symbol] = f"order sync failed: {e}"
+                        cycle_errors.append(f"[LIVE_SYNC:{symbol}] Open-order error: {e}")
+                    continue
+
+                if category != "spot":
+                    continue
 
                 try:
                     open_orders = fetch_bybit_open_orders_for_symbol(
@@ -2017,35 +2164,74 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                         api_key=api_key,
                         api_secret=api_secret,
                         recv_window=recv_window,
-                        category=category,
+                        category="spot",
                         symbol=symbol,
                     )
-                    entry_orders = [
-                        row
-                        for row in open_orders
-                        if str(row.get("side", "")).upper() == "BUY"
-                        and not parse_env_bool(row.get("reduceOnly"), False)
-                    ]
-                    if entry_orders:
-                        row = entry_orders[0]
-                        live_synced_pending_entries[symbol] = {
-                            "order_id": str(row.get("orderId", "")),
-                            "order_link_id": str(row.get("orderLinkId", "")),
-                            "price": to_float(row.get("price"), 0.0),
-                            "qty": abs(to_float(row.get("qty"), 0.0)),
-                            "status": str(row.get("orderStatus", "")),
-                            "updated_at": now_utc_str(),
-                        }
                 except Exception as e:
-                    if symbol not in live_sync_errors:
-                        live_sync_errors[symbol] = f"order sync failed: {e}"
-                    cycle_errors.append(f"[LIVE_SYNC:{symbol}] Open-order error: {e}")
+                    live_sync_errors[symbol] = f"spot open-order sync failed: {e}"
+                    cycle_errors.append(f"[LIVE_SYNC:{symbol}] Spot open-order error: {e}")
+                    open_orders = []
+
+                entry_orders = [
+                    row
+                    for row in open_orders
+                    if str(row.get("side", "")).upper() == "BUY"
+                ]
+                if entry_orders:
+                    row = entry_orders[0]
+                    live_synced_pending_entries[symbol] = {
+                        "order_id": str(row.get("orderId", "")),
+                        "order_link_id": str(row.get("orderLinkId", "")),
+                        "price": to_float(row.get("price"), 0.0),
+                        "qty": abs(to_float(row.get("qty"), 0.0)),
+                        "status": str(row.get("orderStatus", "")),
+                        "updated_at": now_utc_str(),
+                    }
+
+                base_asset = split_symbol_base_quote(symbol).get("base", "")
+                coin_row = spot_coin_balances.get(base_asset, {})
+                wallet_qty = to_float(coin_row.get("wallet"), 0.0)
+                available_qty = to_float(coin_row.get("available"), wallet_qty)
+                free_qty = to_float(coin_row.get("free"), available_qty)
+                held_qty = max(wallet_qty, available_qty, free_qty)
+                qty_constraints = qty_constraints_map.get(f"spot:{symbol}", {})
+                min_qty = to_float(qty_constraints.get("min_qty"), 0.0)
+                qty_threshold = min_qty if min_qty > 0 else 0.0
+                if held_qty > qty_threshold:
+                    prior_hint = (
+                        spot_entry_hints.get(symbol)
+                        or positions.get(symbol)
+                        or live_open_positions_state.get(symbol)
+                        or {}
+                    )
+                    ticker_row = ticker_maps.get("spot", {}).get(symbol, {})
+                    entry_hint = to_float(prior_hint.get("entry"), 0.0)
+                    if entry_hint <= 0:
+                        entry_hint = to_float(prior_hint.get("price"), 0.0)
+                    if entry_hint <= 0:
+                        entry_hint = to_float(ticker_row.get("lastPrice"), 0.0)
+                    if entry_hint <= 0:
+                        continue
+                    live_synced_positions[symbol] = {
+                        "entry": entry_hint,
+                        "opened_at": str(prior_hint.get("opened_at", now_utc_str())),
+                        "qty": held_qty,
+                        "source": "LIVE_SYNC_SPOT",
+                        "updated_at": now_utc_str(),
+                    }
+                    if symbol in spot_entry_hints:
+                        spot_entry_hints[symbol]["status"] = "FILLED"
+                        spot_entry_hints[symbol]["filled_at"] = now_utc_str()
+                elif symbol not in live_synced_pending_entries:
+                    spot_entry_hints.pop(symbol, None)
 
         state["live_open_positions"] = live_synced_positions
         state["live_pending_entries"] = live_synced_pending_entries
+        state["spot_entry_hints"] = spot_entry_hints
     else:
         state["live_open_positions"] = {}
         state["live_pending_entries"] = {}
+        state["spot_entry_hints"] = spot_entry_hints
 
     for job in symbol_jobs:
         symbol = job["symbol"]
@@ -2203,6 +2389,37 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                             f"EXECUTION {symbol} | {exec_result.get('message')}"
                                         )
                                         entry_submission_ok = True
+                                        if (
+                                            live_sync_required
+                                            and normalize_bybit_category(
+                                                result.get("market_category"), fallback=""
+                                            )
+                                            == "spot"
+                                        ):
+                                            entry_res = exec_result.get("responses", {}).get("entry_order", {})
+                                            live_synced_pending_entries[symbol] = {
+                                                "order_id": extract_bybit_order_id(entry_res),
+                                                "order_link_id": str(
+                                                    order_plan.get("entry_order", {}).get("orderLinkId", "")
+                                                ),
+                                                "price": to_float(result.get("wait_price"), 0.0),
+                                                "qty": qty,
+                                                "status": "Submitted",
+                                                "updated_at": now_utc_str(),
+                                            }
+                                            spot_entry_hints[symbol] = {
+                                                "entry": to_float(result.get("wait_price"), 0.0),
+                                                "price": to_float(result.get("wait_price"), 0.0),
+                                                "qty": qty,
+                                                "opened_at": now_utc_str(),
+                                                "status": "PENDING",
+                                                "order_id": str(
+                                                    live_synced_pending_entries[symbol].get("order_id", "")
+                                                ),
+                                                "order_link_id": str(
+                                                    live_synced_pending_entries[symbol].get("order_link_id", "")
+                                                ),
+                                            }
                                     else:
                                         cycle_alerts.append(
                                             f"EXECUTION FAILED {symbol} | {exec_result.get('message')}"
@@ -2228,11 +2445,69 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         "source": source,
                                     }
                     elif signal in {"TAKE_PROFIT", "SELL_NOW", "STOP_LOSS"}:
-                        pos = positions.pop(symbol, None)
+                        pos = (
+                            live_synced_positions.get(symbol)
+                            if live_sync_required
+                            else positions.get(symbol)
+                        )
+                        if not pos:
+                            pos = positions.get(symbol)
                         if pos:
                             entry = to_float(pos.get("entry"), 0.0)
                             qty = to_float(pos.get("qty"), 0.0)
                             if entry > 0 and qty > 0:
+                                exit_allowed = True
+                                exec_mode = str(exec_ctx.get("mode", "paper")).lower()
+                                market_category = normalize_bybit_category(
+                                    result.get("market_category"),
+                                    fallback=default_bybit_category,
+                                )
+                                if exec_mode == "live" and exchange_name == "bybit" and market_category == "spot":
+                                    exit_plan = build_bybit_spot_exit_order_plan(
+                                        symbol=symbol,
+                                        qty=qty,
+                                        order_group_id=build_order_group_id(
+                                            symbol=symbol,
+                                            close_time=result.get("close_time"),
+                                        ),
+                                    )
+                                    if not exit_plan:
+                                        exit_allowed = False
+                                        cycle_alerts.append(
+                                            f"EXIT BLOCKED {symbol} | Unable to build spot exit plan."
+                                        )
+                                    else:
+                                        exec_result = execute_bybit_order_plan(
+                                            config=config,
+                                            exchange_cfg=exchange_cfg,
+                                            order_plan=exit_plan,
+                                        )
+                                        result["execution"] = exec_result
+                                        execution_events.append(
+                                            {
+                                                "symbol": symbol,
+                                                "result": exec_result,
+                                                "time": now_utc_str(),
+                                            }
+                                        )
+                                        if exec_result.get("success"):
+                                            cycle_alerts.append(
+                                                f"EXIT EXECUTION {symbol} | {exec_result.get('message')}"
+                                            )
+                                        else:
+                                            exit_allowed = False
+                                            cycle_alerts.append(
+                                                f"EXIT EXECUTION FAILED {symbol} | {exec_result.get('message')}"
+                                            )
+
+                                if not exit_allowed:
+                                    continue
+
+                                positions.pop(symbol, None)
+                                live_synced_positions.pop(symbol, None)
+                                live_synced_pending_entries.pop(symbol, None)
+                                spot_entry_hints.pop(symbol, None)
+
                                 exit_price = to_float(result.get("price"), entry)
                                 pnl = compute_trade_pnl_usdt(
                                     entry_price=entry,
@@ -2483,7 +2758,6 @@ def validate_config(config: Dict[str, Any]) -> None:
     if not config["symbols"]:
         raise ValueError("symbols list cannot be empty")
     exchange_name = str(config["exchange"].get("name", "binance")).lower()
-    bybit_category = normalize_bybit_category(config["exchange"].get("category", "linear"))
     if exchange_name not in SUPPORTED_EXCHANGES:
         raise ValueError(
             f"Unsupported exchange '{exchange_name}'. "
@@ -2568,11 +2842,6 @@ def validate_config(config: Dict[str, Any]) -> None:
         raise ValueError("execution.mode must be 'paper' or 'live'")
     if mode == "live" and exchange_name != "bybit":
         raise ValueError("execution.mode='live' currently supports only exchange.name='bybit'")
-    if mode == "live" and exchange_name == "bybit" and bybit_category == "spot":
-        if not bool(exec_cfg.get("assume_filled_on_submit", False)):
-            raise ValueError(
-                "execution.assume_filled_on_submit must be true for Bybit spot live mode."
-            )
     if "recv_window_ms" in exec_cfg and int(exec_cfg.get("recv_window_ms", 0)) <= 0:
         raise ValueError("execution.recv_window_ms must be > 0")
     live_safety_cfg = exec_cfg.get("live_safety", {})

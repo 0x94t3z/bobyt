@@ -77,7 +77,7 @@
   },
   "execution": {
     "mode": "live",
-    "assume_filled_on_submit": true,
+    "assume_filled_on_submit": false,
     "recv_window_ms": 5000,
     "live_safety": {
       "require_manual_unlock": true,

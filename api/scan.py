@@ -118,24 +118,210 @@ class handler(BaseHTTPRequestHandler):
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Bobyt Trading Bot API</title>
+    <title>Bobyt Trading Dashboard</title>
     <style>
-      body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; background: #060b16; color: #e9efff; margin: 0; }
-      .wrap { max-width: 760px; margin: 48px auto; padding: 0 20px; }
-      .card { background: #0f182c; border: 1px solid #243659; border-radius: 12px; padding: 20px; }
-      code { background: #0b1324; border: 1px solid #22355b; padding: 2px 6px; border-radius: 6px; color: #9dd3ff; }
-      a { color: #7eb7ff; }
-      p { color: #b8c6e6; }
+      :root {
+        --bg: #060b16;
+        --bg2: #0f182c;
+        --line: #243659;
+        --txt: #e9efff;
+        --sub: #a9b8dc;
+        --ok: #2fd08a;
+        --warn: #ffb458;
+        --err: #ff6d7e;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
+        background: radial-gradient(1200px 500px at 10% -10%, #203b73 0%, transparent 60%), var(--bg);
+        color: var(--txt);
+        margin: 0;
+      }
+      .wrap { max-width: 1200px; margin: 28px auto; padding: 0 16px; }
+      .hero {
+        background: linear-gradient(135deg, #101d38 0%, #0f182c 100%);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 18px;
+        margin-bottom: 14px;
+      }
+      .muted { color: var(--sub); }
+      .controls {
+        display: grid;
+        grid-template-columns: 2fr 2fr 1fr 1fr;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      input, button {
+        height: 40px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: #0b1324;
+        color: var(--txt);
+        padding: 0 12px;
+      }
+      button {
+        cursor: pointer;
+        background: linear-gradient(135deg, #ff6d6d 0%, #f0544f 100%);
+        border: 0;
+        font-weight: 700;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .stat {
+        border: 1px solid var(--line);
+        background: var(--bg2);
+        border-radius: 12px;
+        padding: 10px 12px;
+      }
+      .k { color: var(--sub); font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+      .v { font-size: 26px; font-weight: 700; margin-top: 4px; }
+      .box {
+        margin-top: 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--bg2);
+        overflow: hidden;
+      }
+      .box h3 { margin: 0; padding: 12px; border-bottom: 1px solid var(--line); }
+      table { width: 100%; border-collapse: collapse; }
+      th, td {
+        text-align: left;
+        padding: 10px 12px;
+        border-bottom: 1px solid #1f3052;
+        font-size: 13px;
+      }
+      th { color: var(--sub); font-weight: 600; }
+      .ok { color: var(--ok); }
+      .warn { color: var(--warn); }
+      .err { color: var(--err); }
+      .status {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: #0c1528;
+        color: var(--sub);
+      }
+      @media (max-width: 900px) {
+        .controls { grid-template-columns: 1fr; }
+        .stats { grid-template-columns: 1fr 1fr; }
+      }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <div class="card">
-        <h1>Bobyt Trading Bot API</h1>
-        <p>Service is online. Scan endpoint is protected.</p>
-        <p>Use: <code>/api/scan?config=configs/config.json&amp;token=YOUR_TOKEN</code></p>
+      <div class="hero">
+        <h1 style="margin:0 0 6px 0;">Bobyt Trading Dashboard</h1>
+        <div class="muted">Vercel-hosted UI + API. Scan endpoint remains token-protected.</div>
+        <div class="controls">
+          <input id="config" value="configs/config.json" placeholder="Config path" />
+          <input id="token" placeholder="TRADING_BOT_SCAN_TOKEN" />
+          <input id="refresh" type="number" min="15" value="60" />
+          <button id="runBtn">Run Scan</button>
+        </div>
+        <div class="status" id="status">Ready.</div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="k">Scanned</div><div class="v" id="m_scanned">-</div></div>
+        <div class="stat"><div class="k">Buy Signals</div><div class="v ok" id="m_buy">-</div></div>
+        <div class="stat"><div class="k">Wait Signals</div><div class="v warn" id="m_wait">-</div></div>
+        <div class="stat"><div class="k">Errors</div><div class="v err" id="m_err">-</div></div>
+        <div class="stat"><div class="k">Execution</div><div class="v" id="m_exec">-</div></div>
+      </div>
+
+      <div class="box">
+        <h3>Top Results</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Symbol</th><th>Action</th><th>Score</th><th>Price</th><th>Entry</th><th>TP</th><th>SL</th><th>Note</th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr><td colspan="8" class="muted">No data yet. Run scan.</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const statusEl = $("status");
+      let timer = null;
+
+      function text(v) {
+        if (v === null || v === undefined || v === "") return "-";
+        return String(v);
+      }
+
+      function rowClass(action) {
+        const a = String(action || "");
+        if (a.includes("BUY")) return "ok";
+        if (a.includes("SELL")) return "err";
+        if (a.includes("WAIT")) return "warn";
+        return "";
+      }
+
+      async function runScan() {
+        const config = $("config").value.trim() || "configs/config.json";
+        const token = $("token").value.trim();
+        const qs = new URLSearchParams({ config });
+        if (token) qs.set("token", token);
+        const url = "/api/scan?" + qs.toString();
+
+        statusEl.textContent = "Scanning...";
+        try {
+          const res = await fetch(url, { method: "GET" });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            statusEl.textContent = "Scan failed: " + (data.error || ("HTTP " + res.status));
+            return;
+          }
+          $("m_scanned").textContent = text(data.summary?.scanned);
+          $("m_buy").textContent = text(data.summary?.buy_signals);
+          $("m_wait").textContent = text(data.summary?.wait_signals);
+          $("m_err").textContent = text(data.summary?.errors);
+          $("m_exec").textContent = text((data.execution_mode || "").toUpperCase());
+
+          const rows = data.top_results || [];
+          const tbody = $("rows");
+          if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="muted">No rows in this scan.</td></tr>';
+          } else {
+            tbody.innerHTML = rows.map((r) =>
+              `<tr>
+                <td>${text(r.symbol)}</td>
+                <td class="${rowClass(r.action)}">${text(r.action)}</td>
+                <td>${text(r.score)}</td>
+                <td>${text(r.price)}</td>
+                <td>${text(r.entry)}</td>
+                <td>${text(r.tp)}</td>
+                <td>${text(r.sl)}</td>
+                <td>${text(r.note)}</td>
+              </tr>`
+            ).join("");
+          }
+          statusEl.textContent = "Last scan: " + text(data.time);
+        } catch (e) {
+          statusEl.textContent = "Network error: " + e;
+        }
+      }
+
+      function applyAutoRefresh() {
+        if (timer) clearInterval(timer);
+        const sec = Math.max(15, Number($("refresh").value || 60));
+        timer = setInterval(runScan, sec * 1000);
+      }
+
+      $("runBtn").addEventListener("click", runScan);
+      $("refresh").addEventListener("change", applyAutoRefresh);
+      applyAutoRefresh();
+    </script>
   </body>
 </html>""",
                 status_code=200,

@@ -18,6 +18,10 @@ from trading_bot.bot import (  # noqa: E402
     prepare_config_for_runtime,
     validate_config,
 )
+from trading_bot.state_store import (  # noqa: E402
+    describe_json_storage_backend,
+    get_database_url,
+)
 
 
 def is_testnet_url(url: str) -> bool:
@@ -99,6 +103,8 @@ def main() -> int:
     runtime_category = str(runtime_exchange_cfg.get("category", "linear")).lower()
     runtime_assume_filled = bool(runtime_config.get("execution", {}).get("assume_filled_on_submit", False))
     runtime_state_file = str(runtime_config.get("state_file", ""))
+    storage_info = describe_json_storage_backend(path=runtime_state_file, purpose="state")
+    storage_backend = storage_info.get("backend", "file")
     comp_cfg = config.get("risk", {}).get("compounding", {})
     comp_enabled = bool(comp_cfg.get("enabled", False))
     exchange_cfg = config.get("exchange", {})
@@ -149,6 +155,18 @@ def main() -> int:
             failures,
             passes,
         )
+        if storage_backend == "postgres":
+            check(
+                bool(get_database_url()),
+                "PostgreSQL URL is configured for state backend.",
+                "State backend is postgres but no TRADING_BOT_POSTGRES_URL/NEON_DATABASE_URL/DATABASE_URL is set.",
+                failures,
+                passes,
+            )
+        else:
+            warnings.append(
+                "State backend is file-based on Vercel. Consider PostgreSQL (Neon) to avoid state loss on cold starts."
+            )
 
     if mode == "live":
         check(
@@ -223,6 +241,7 @@ def main() -> int:
     print(f"Config: {config_path.relative_to(ROOT_DIR)}")
     print(f"Target: {args.target} | Scheduler: {args.scheduler}")
     print(f"Mode: config={mode} runtime={runtime_mode}")
+    print(f"State backend: {storage_backend}")
     print()
 
     for msg in passes:

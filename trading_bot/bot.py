@@ -38,6 +38,11 @@ from .bybit_client import (
     is_active_open_order_status as client_is_active_open_order_status,
     is_bybit_duplicate_order_response as client_is_bybit_duplicate_order_response,
 )
+from .state_store import (
+    describe_json_storage_backend,
+    load_persisted_json,
+    save_persisted_json,
+)
 
 
 DEFAULT_STATE_FILE = "state/bot_state.json"
@@ -208,6 +213,16 @@ def prepare_config_for_runtime(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     cfg = copy.deepcopy(config)
     notes = apply_runtime_safety_overrides(cfg)
+    state_file = str(cfg.get("state_file", DEFAULT_STATE_FILE))
+    storage_info = describe_json_storage_backend(path=state_file, purpose="state")
+    backend = storage_info.get("backend", "file")
+    if backend == "postgres":
+        notes.append(
+            "State backend: postgres "
+            f"(table={storage_info.get('table')}, key={storage_info.get('storage_key')})"
+        )
+    else:
+        notes.append(f"State backend: file ({state_file})")
     if notes:
         cfg["_runtime_notes"] = notes
     return cfg
@@ -2607,7 +2622,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
 def run_bot(config: Dict[str, Any], run_once: bool = False) -> None:
     ensure_runtime_env()
     state_file = config.get("state_file", DEFAULT_STATE_FILE)
-    state = load_json_file(state_file, build_default_state())
+    state = load_persisted_json(state_file, build_default_state(), purpose="state")
 
     exchange_cfg = config["exchange"]
     exchange_name = str(exchange_cfg.get("name", "binance")).lower()
@@ -2721,7 +2736,7 @@ def run_bot(config: Dict[str, Any], run_once: bool = False) -> None:
         else:
             print(f"\n[{now_utc_str()}] No new trade alerts this cycle.")
 
-        save_json_file(state_file, state)
+        save_persisted_json(state_file, state, purpose="state")
         if run_once:
             break
         time.sleep(scan_every_seconds)
@@ -2729,12 +2744,18 @@ def run_bot(config: Dict[str, Any], run_once: bool = False) -> None:
 
 def run_single_scan_with_state(config: Dict[str, Any], persist_state: bool = True) -> Dict[str, Any]:
     state_file = str(config.get("state_file", DEFAULT_STATE_FILE))
-    state = load_json_file(state_file, build_default_state())
+    state = load_persisted_json(state_file, build_default_state(), purpose="state")
     cycle = scan_once(config=config, state=state)
+    state_storage = describe_json_storage_backend(path=state_file, purpose="state")
     if persist_state:
-        save_json_file(state_file, state)
+        save_persisted_json(state_file, state, purpose="state")
     cycle["state_file"] = state_file
     cycle["state_persisted"] = bool(persist_state)
+    cycle["state_backend"] = state_storage.get("backend", "file")
+    if state_storage.get("storage_key"):
+        cycle["state_storage_key"] = state_storage.get("storage_key")
+    if state_storage.get("table"):
+        cycle["state_storage_table"] = state_storage.get("table")
     if config.get("_runtime_notes"):
         cycle["runtime_notes"] = list(config.get("_runtime_notes", []))
     return cycle

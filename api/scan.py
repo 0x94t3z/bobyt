@@ -21,8 +21,12 @@ from trading_bot.bot import (  # noqa: E402
     parse_env_bool,
     prepare_config_for_runtime,
     run_single_scan_with_state,
-    save_json_file,
     validate_config,
+)
+from trading_bot.state_store import (  # noqa: E402
+    describe_json_storage_backend,
+    load_persisted_json,
+    save_persisted_json,
 )
 
 
@@ -402,7 +406,10 @@ class handler(BaseHTTPRequestHandler):
               </tr>`;
             }).join("");
           }
-          statusEl.textContent = "Backend last scan: " + text(data.time) + " | state: " + text(data.state_file);
+            statusEl.textContent =
+              "Backend last scan: " + text(data.time) +
+              " | state: " + text(data.state_file) +
+              " | backend: " + text(data.state_backend || data.status_backend || "file");
         } catch (e) {
           statusEl.textContent = "Network error: " + e;
         }
@@ -439,7 +446,8 @@ class handler(BaseHTTPRequestHandler):
 
         if path == "/api/status":
             status_file = resolve_status_file()
-            snapshot = load_json_file(status_file, None)
+            status_storage = describe_json_storage_backend(path=status_file, purpose="status")
+            snapshot = load_persisted_json(status_file, None, purpose="status")
             if not isinstance(snapshot, dict):
                 self._write_json(
                     {
@@ -447,6 +455,9 @@ class handler(BaseHTTPRequestHandler):
                         "has_data": False,
                         "time": now_utc_str(),
                         "state_file": status_file,
+                        "status_backend": status_storage.get("backend", "file"),
+                        "status_storage_key": status_storage.get("storage_key"),
+                        "status_storage_table": status_storage.get("table"),
                         "message": "No backend snapshot yet. Trigger /api/scan first.",
                     },
                     status_code=200,
@@ -455,6 +466,9 @@ class handler(BaseHTTPRequestHandler):
             payload = dict(snapshot)
             payload["ok"] = True
             payload["has_data"] = True
+            payload["status_backend"] = status_storage.get("backend", "file")
+            payload["status_storage_key"] = status_storage.get("storage_key")
+            payload["status_storage_table"] = status_storage.get("table")
             self._write_json(payload, status_code=200)
             return
 
@@ -517,6 +531,9 @@ class handler(BaseHTTPRequestHandler):
                 "runtime_notes": cycle.get("runtime_notes", runtime_config.get("_runtime_notes", [])),
                 "state_file": cycle.get("state_file"),
                 "state_persisted": bool(cycle.get("state_persisted", not monitor_only)),
+                "state_backend": cycle.get("state_backend", "file"),
+                "state_storage_key": cycle.get("state_storage_key"),
+                "state_storage_table": cycle.get("state_storage_table"),
                 "summary": {
                     "scanned": len(results),
                     "alerts": len(alerts),
@@ -546,9 +563,13 @@ class handler(BaseHTTPRequestHandler):
                 snapshot = dict(payload)
                 snapshot.pop("ok", None)
                 status_file = resolve_status_file()
+                status_storage = describe_json_storage_backend(path=status_file, purpose="status")
                 try:
-                    save_json_file(status_file, snapshot)
+                    save_persisted_json(status_file, snapshot, purpose="status")
                     payload["status_file"] = status_file
+                    payload["status_backend"] = status_storage.get("backend", "file")
+                    payload["status_storage_key"] = status_storage.get("storage_key")
+                    payload["status_storage_table"] = status_storage.get("table")
                 except Exception as status_error:
                     payload.setdefault("runtime_notes", [])
                     if isinstance(payload["runtime_notes"], list):

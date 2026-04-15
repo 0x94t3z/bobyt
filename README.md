@@ -16,14 +16,14 @@ flowchart LR
   B --> C["trading_bot.bot.scan_once"]
   C --> D["Bybit Market Data API"]
   C --> E["Bybit Order API"]
-  C --> F["State File"]
+  C --> F["State Store (File or Neon Postgres)"]
   G["Streamlit UI"] --> C
 ```
 
 Runtime behavior:
 - Vercel/API mode: scheduled scans via `cron-job.org`, returns JSON.
 - Local/UI mode: interactive scans from Streamlit.
-- State: local file (`state/bot_state.json` locally, `/tmp/...` on Vercel by default).
+- State: local file or Postgres (`Neon` recommended on Vercel).
 
 ## Repository Layout
 
@@ -35,6 +35,7 @@ Runtime behavior:
 | `apps/streamlit_app.py` | Deploy-friendly Streamlit entrypoint |
 | `trading_bot/bot.py` | Core scanning, risk, execution, journal |
 | `trading_bot/bybit_client.py` | Bybit HTTP/signing helpers |
+| `trading_bot/state_store.py` | File/Postgres state persistence backend |
 | `configs/config.json` | Active config used in runs/deploy |
 | `configs/config.example.json` | Starter template |
 | `configs/presets/*.json` | Optional preset profiles |
@@ -161,6 +162,20 @@ For Bybit **spot live mode**, set `execution.assume_filled_on_submit` to `false`
 | `TRADING_BOT_SCAN_TOKEN=<secret>` | API auth token (`Bearer` or `?token=`) |
 | `TRADING_BOT_ALLOW_LIVE_ON_VERCEL` | `true` only if you intentionally allow live orders on Vercel |
 
+### Neon/PostgreSQL state backend
+
+| Variable | Purpose |
+|---|---|
+| `TRADING_BOT_STATE_BACKEND=postgres` | Enable Postgres persistence |
+| `TRADING_BOT_POSTGRES_URL=<neon_url>` | Neon connection string (`sslmode=require`) |
+| `TRADING_BOT_POSTGRES_TABLE` | Optional table override (default: `trading_bot_state_store`) |
+| `TRADING_BOT_STATE_STORAGE_KEY` | Optional fixed key for bot state payload |
+| `TRADING_BOT_STATUS_STORAGE_KEY` | Optional fixed key for `/api/status` snapshot payload |
+
+Notes:
+- Table is auto-created on first run.
+- If `TRADING_BOT_STATE_BACKEND=file`, old JSON file behavior is used.
+
 ## Deploy with Vercel + cron-job.org
 
 This repository uses:
@@ -171,7 +186,9 @@ This repository uses:
 
 1. Push repo to GitHub.
 2. Import repo in Vercel.
-3. Add Vercel env vars (table above).
+3. Add Vercel env vars:
+   - live/auth vars (table above)
+   - Neon vars (`TRADING_BOT_STATE_BACKEND=postgres`, `TRADING_BOT_POSTGRES_URL=...`)
 4. Deploy.
 
 ### cron-job.org job
@@ -234,4 +251,5 @@ Check:
 
 ### State resets on cloud
 
-File-based state may reset on redeploy/cold start. Use DB/KV for persistent production history.
+If `TRADING_BOT_STATE_BACKEND=file`, state may reset on redeploy/cold start.  
+Use Neon Postgres (`TRADING_BOT_STATE_BACKEND=postgres`) for persistent production state.

@@ -2688,6 +2688,9 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                 available_qty = to_float(coin_row.get("available"), wallet_qty)
                 free_qty = to_float(coin_row.get("free"), available_qty)
                 held_qty = max(wallet_qty, available_qty, free_qty)
+                sellable_candidates = [q for q in (free_qty, available_qty, wallet_qty) if q > 0]
+                # Use conservative sellable quantity for exit submissions to reduce insufficient-balance rejects.
+                sellable_qty = min(sellable_candidates) if sellable_candidates else 0.0
                 qty_constraints = qty_constraints_map.get(f"spot:{symbol}", {})
                 min_qty = to_float(qty_constraints.get("min_qty"), 0.0)
                 min_notional = to_float(qty_constraints.get("min_notional"), 0.0)
@@ -2722,6 +2725,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                         "entry": entry_hint,
                         "opened_at": str(prior_hint.get("opened_at", now_utc_str())),
                         "qty": held_qty,
+                        "sellable_qty": sellable_qty,
                         "source": "LIVE_SYNC_SPOT",
                         "managed_by_bot": True,
                         "updated_at": now_utc_str(),
@@ -3160,7 +3164,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                         if pos:
                             entry = to_float(pos.get("entry"), 0.0)
                             qty = to_float(pos.get("qty"), 0.0)
-                            close_qty = qty
+                            close_qty = to_float(pos.get("sellable_qty"), qty)
                             if entry > 0 and qty > 0:
                                 exit_allowed = True
                                 exit_fill: Dict[str, Any] = {}
@@ -3189,6 +3193,16 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         spot_entry_hints.pop(symbol, None)
                                         spot_close_candidates.pop(symbol, None)
                                         continue
+                                if (
+                                    exec_mode == "live"
+                                    and exchange_name == "bybit"
+                                    and market_category == "spot"
+                                    and close_qty <= 0
+                                ):
+                                    cycle_alerts.append(
+                                        f"EXIT SKIPPED {symbol} | Sellable balance is zero (waiting for next sync)."
+                                    )
+                                    continue
                                 if (
                                     exec_mode == "live"
                                     and exchange_name == "bybit"

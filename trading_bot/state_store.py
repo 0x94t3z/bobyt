@@ -8,11 +8,12 @@ import math
 import os
 import ssl
 import urllib.parse
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 POSTGRES_BACKEND_ALIASES = {"postgres", "postgresql", "neon"}
 DEFAULT_POSTGRES_TABLE = "trading_bot_state_store"
+DEFAULT_CLOSED_TRADES_TABLE = "trading_bot_closed_trades"
 
 
 def parse_env_bool(value: Any, default: bool = False) -> bool:
@@ -80,6 +81,13 @@ def _sanitize_for_strict_json(value: Any) -> Any:
     return value
 
 
+def _to_float(value: Any, fallback: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def get_database_url() -> str:
     return str(
         os.getenv("TRADING_BOT_POSTGRES_URL", "")
@@ -115,6 +123,13 @@ def _storage_key_from_path(path: str, purpose: str) -> str:
 
 def _postgres_table_name() -> str:
     return _sanitize_identifier(os.getenv("TRADING_BOT_POSTGRES_TABLE", DEFAULT_POSTGRES_TABLE), "state_store")
+
+
+def _postgres_closed_trades_table_name() -> str:
+    return _sanitize_identifier(
+        os.getenv("TRADING_BOT_CLOSED_TRADES_TABLE", DEFAULT_CLOSED_TRADES_TABLE),
+        "closed_trades",
+    )
 
 
 def describe_json_storage_backend(path: str, purpose: str = "state") -> Dict[str, str]:
@@ -178,6 +193,31 @@ def _ensure_postgres_table(conn: Any, table: str) -> None:
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
             """
+        )
+    finally:
+        cur.close()
+    conn.commit()
+
+
+def _ensure_postgres_closed_trades_table(conn: Any, table: str) -> None:
+    idx_name = _sanitize_identifier(f"{table}_state_closed_idx", "closed_idx")
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {table} (
+                trade_hash TEXT PRIMARY KEY,
+                state_storage_key TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                closed_at_ts DOUBLE PRECISION NOT NULL DEFAULT 0,
+                pnl_usdt DOUBLE PRECISION NOT NULL DEFAULT 0,
+                payload JSONB NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute(
+            f"CREATE INDEX IF NOT EXISTS {idx_name} ON {table} (state_storage_key, closed_at_ts DESC)"
         )
     finally:
         cur.close()
@@ -255,3 +295,42 @@ def save_persisted_json(path: str, payload: Any, purpose: str = "state") -> None
         _save_to_postgres(path=path, payload=payload, purpose=purpose)
         return
     _save_json_file(path=path, payload=payload)
+
+
+def save_closed_trade_record(path: str, trade: Dict[str, Any], purpose: str = "state") -> Optional[str]:
+    backend = get_state_backend()
+    if backend != "postgres":
+        return None
+    if not isinstance(trade, dict):
+        return "invalid_trade_payload"
+    table = _postgres_closed_trades_table_name()
+    storage_key = _storage_key_from_path(path, purpose)
+    conn = _postgres_connect()
+    try:
+        _ensure_postgres_closed_trades_table(conn, table)
+        sanitized = _sanitize_for_strict_json(trade)
+        payload_text = json.dumps(sanitized, separators=(",", ":"), sort_keys=True, allow_nan=False)
+        trade_hash = hashlib.sha1(f"{storage_key}|{payload_text}".encode("utf-8")).hexdigest()
+        symbol = str(trade.get("symbol", "")).upper()
+        closed_at_ts = _to_float(trade.get("closed_at_ts"), 0.0)
+        pnl_usdt = _to_float(trade.get("pnl_usdt"), 0.0)
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                f"""
+                INSERT INTO {table} (
+                    trade_hash, state_storage_key, symbol, closed_at_ts, pnl_usdt, payload, created_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s::jsonb, NOW())
+                ON CONFLICT (trade_hash) DO NOTHING
+                """,
+                (trade_hash, storage_key, symbol, closed_at_ts, pnl_usdt, payload_text),
+            )
+        finally:
+            cur.close()
+        conn.commit()
+        return None
+    except Exception as e:
+        return str(e)
+    finally:
+        conn.close()

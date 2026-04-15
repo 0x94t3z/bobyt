@@ -41,6 +41,7 @@ from .bybit_client import (
 from .state_store import (
     describe_json_storage_backend,
     load_persisted_json,
+    save_closed_trade_record,
     save_persisted_json,
 )
 
@@ -412,6 +413,11 @@ def add_closed_trade_to_history(
     overflow = len(trade_history) - max_closed
     if overflow > 0:
         del trade_history[:overflow]
+
+    state_file = str(config.get("state_file", DEFAULT_STATE_FILE))
+    journal_error = save_closed_trade_record(path=state_file, trade=trade, purpose="state")
+    if journal_error:
+        trade.setdefault("journal_warning", f"closed_trade_record_not_saved: {journal_error}")
 
 
 def compute_trade_metrics(

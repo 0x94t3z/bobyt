@@ -188,11 +188,13 @@ Only if you intentionally disable that protection should you set:
 | `TRADING_BOT_STATE_BACKEND=postgres` | Enable Postgres persistence |
 | `TRADING_BOT_POSTGRES_URL=<neon_url>` | Neon connection string (`sslmode=require`) |
 | `TRADING_BOT_POSTGRES_TABLE` | Optional table override (default: `trading_bot_state_store`) |
+| `TRADING_BOT_CLOSED_TRADES_TABLE` | Optional closed-trade journal table (default: `trading_bot_closed_trades`) |
 | `TRADING_BOT_STATE_STORAGE_KEY` | Optional fixed key for bot state payload |
 | `TRADING_BOT_STATUS_STORAGE_KEY` | Optional fixed key for `/api/status` snapshot payload |
 
 Notes:
 - Table is auto-created on first run.
+- Closed trades are also journaled into a dedicated Postgres table (`trading_bot_closed_trades`) for easier SQL/audit visibility.
 - If `TRADING_BOT_STATE_BACKEND=file`, old JSON file behavior is used.
 
 ## Deploy with Vercel + cron-job.org

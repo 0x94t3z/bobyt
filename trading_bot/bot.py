@@ -277,6 +277,19 @@ def split_symbol_base_quote(symbol: str) -> Dict[str, str]:
     return {"base": symbol_up, "quote": ""}
 
 
+def is_bot_owned_marker(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    if parse_env_bool(payload.get("managed_by_bot"), False):
+        return True
+    order_link_id = str(
+        payload.get("order_link_id")
+        or payload.get("orderLinkId")
+        or ""
+    ).strip().lower()
+    return order_link_id.startswith("cab")
+
+
 def build_exit_prices(entry_price: float, tp_pct: float, sl_pct: float) -> Dict[str, float]:
     return {
         "tp_price": entry_price * (1 + tp_pct),
@@ -1134,6 +1147,13 @@ def evaluate_live_execution_guard(
         if not safety.get("allow_mainnet"):
             issues.append(
                 "Mainnet URL detected. Set TRADING_BOT_ALLOW_MAINNET=true after paper/testing."
+            )
+    exchange_name = str(exchange_cfg.get("name", "")).lower()
+    if exchange_name == "bybit":
+        bybit_category = get_bybit_default_category(exchange_cfg)
+        if bybit_category == "spot" and bool(exec_ctx.get("assume_filled_on_submit")):
+            issues.append(
+                "Bybit spot live requires execution.assume_filled_on_submit=false."
             )
 
     return {
@@ -2191,6 +2211,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                     row
                     for row in open_orders
                     if str(row.get("side", "")).upper() == "BUY"
+                    and is_bot_owned_marker(row)
                 ]
                 if entry_orders:
                     row = entry_orders[0]
@@ -2213,18 +2234,24 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                 min_qty = to_float(qty_constraints.get("min_qty"), 0.0)
                 qty_threshold = min_qty if min_qty > 0 else 0.0
                 if held_qty > qty_threshold:
-                    prior_hint = (
-                        spot_entry_hints.get(symbol)
-                        or positions.get(symbol)
-                        or live_open_positions_state.get(symbol)
-                        or {}
+                    hint_candidates = [
+                        spot_entry_hints.get(symbol),
+                        positions.get(symbol),
+                        live_open_positions_state.get(symbol),
+                    ]
+                    prior_hint = next(
+                        (
+                            row
+                            for row in hint_candidates
+                            if isinstance(row, dict) and is_bot_owned_marker(row)
+                        ),
+                        {},
                     )
-                    ticker_row = ticker_maps.get("spot", {}).get(symbol, {})
+                    if not prior_hint:
+                        continue
                     entry_hint = to_float(prior_hint.get("entry"), 0.0)
                     if entry_hint <= 0:
                         entry_hint = to_float(prior_hint.get("price"), 0.0)
-                    if entry_hint <= 0:
-                        entry_hint = to_float(ticker_row.get("lastPrice"), 0.0)
                     if entry_hint <= 0:
                         continue
                     live_synced_positions[symbol] = {
@@ -2232,13 +2259,15 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                         "opened_at": str(prior_hint.get("opened_at", now_utc_str())),
                         "qty": held_qty,
                         "source": "LIVE_SYNC_SPOT",
+                        "managed_by_bot": True,
                         "updated_at": now_utc_str(),
                     }
-                    if symbol in spot_entry_hints:
+                    if is_bot_owned_marker(spot_entry_hints.get(symbol)):
                         spot_entry_hints[symbol]["status"] = "FILLED"
                         spot_entry_hints[symbol]["filled_at"] = now_utc_str()
                 elif symbol not in live_synced_pending_entries:
-                    spot_entry_hints.pop(symbol, None)
+                    if is_bot_owned_marker(spot_entry_hints.get(symbol)):
+                        spot_entry_hints.pop(symbol, None)
 
         state["live_open_positions"] = live_synced_positions
         state["live_pending_entries"] = live_synced_pending_entries
@@ -2428,6 +2457,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                                 "qty": qty,
                                                 "opened_at": now_utc_str(),
                                                 "status": "PENDING",
+                                                "managed_by_bot": True,
                                                 "order_id": str(
                                                     live_synced_pending_entries[symbol].get("order_id", "")
                                                 ),
@@ -2458,6 +2488,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         "tp_price": to_float(result.get("tp_price"), 0.0),
                                         "sl_price": to_float(result.get("sl_price"), 0.0),
                                         "source": source,
+                                        "managed_by_bot": True,
                                     }
                     elif signal in {"TAKE_PROFIT", "SELL_NOW", "STOP_LOSS"}:
                         pos = (
@@ -2477,6 +2508,16 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                     result.get("market_category"),
                                     fallback=default_bybit_category,
                                 )
+                                if (
+                                    exec_mode == "live"
+                                    and exchange_name == "bybit"
+                                    and market_category == "spot"
+                                    and not is_bot_owned_marker(pos)
+                                ):
+                                    cycle_alerts.append(
+                                        f"EXIT BLOCKED {symbol} | Spot position not marked as bot-owned."
+                                    )
+                                    continue
                                 if exec_mode == "live" and exchange_name == "bybit" and market_category == "spot":
                                     exit_plan = build_bybit_spot_exit_order_plan(
                                         symbol=symbol,
@@ -2863,6 +2904,12 @@ def validate_config(config: Dict[str, Any]) -> None:
         raise ValueError("execution.mode must be 'paper' or 'live'")
     if mode == "live" and exchange_name != "bybit":
         raise ValueError("execution.mode='live' currently supports only exchange.name='bybit'")
+    if mode == "live" and exchange_name == "bybit":
+        bybit_category = get_bybit_default_category(config["exchange"])
+        if bybit_category == "spot" and bool(exec_cfg.get("assume_filled_on_submit", False)):
+            raise ValueError(
+                "execution.assume_filled_on_submit must be false for Bybit spot live mode."
+            )
     if "recv_window_ms" in exec_cfg and int(exec_cfg.get("recv_window_ms", 0)) <= 0:
         raise ValueError("execution.recv_window_ms must be > 0")
     live_safety_cfg = exec_cfg.get("live_safety", {})

@@ -27,7 +27,7 @@
   },
   "price_filter": {
     "enabled": true,
-    "max_price_usdt": 0.1,
+    "max_price_usdt": 1.0,
     "apply_to_watchlist": true,
     "apply_to_spot_discovery": true
   },

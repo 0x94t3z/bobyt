@@ -232,31 +232,31 @@ class handler(BaseHTTPRequestHandler):
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
       :root {
-        --bg: #090a0c;
-        --panel: #101317e8;
-        --panel-solid: #13171c;
-        --line: #252b33;
-        --line-soft: #1d232b;
-        --txt: #f1f3f5;
-        --sub: #939ca8;
+        --bg: #060708;
+        --panel: #0b0d10f2;
+        --panel-solid: #0e1013;
+        --line: #20242a;
+        --line-soft: #1a1e24;
+        --txt: #f4f6f8;
+        --sub: #8d96a2;
         --ok: #20c997;
         --warn: #f7a600;
         --err: #ff5b6e;
         --accent: #f7a600;
-        --bg-blob-1: #3f311d52;
-        --bg-blob-2: #211a1348;
-        --hero-start: #171b21cc;
-        --hero-end: #0f1217cc;
-        --chip-border: #353b43;
-        --chip-bg: #181c21;
+        --bg-blob-1: #3f311d2f;
+        --bg-blob-2: #00000000;
+        --hero-start: #0f1115f2;
+        --hero-end: #090b0df2;
+        --chip-border: #2e343c;
+        --chip-bg: #121418;
         --chip-text: #f7a600;
-        --input-bg: #0e1217;
+        --input-bg: #0b0e12;
         --button-start: #ffbf2f;
         --button-end: #f09512;
-        --th-text: #bec6d1;
-        --th-bg: #141920;
-        --row-alt: #11161dbd;
-        --grid-line: #252b33;
+        --th-text: #b8c0ca;
+        --th-bg: #101317;
+        --row-alt: #0f1318bd;
+        --grid-line: #20242a;
         --soft-glow: #96aeff26;
       }
       * { box-sizing: border-box; }
@@ -306,6 +306,8 @@ class handler(BaseHTTPRequestHandler):
       .portfolio-card {
         margin-top: 14px;
         position: relative;
+        width: min(780px, 100%);
+        margin-right: auto;
         border: 1px solid #4a3a20;
         border-radius: 18px;
         overflow: hidden;
@@ -400,6 +402,7 @@ class handler(BaseHTTPRequestHandler):
         grid-template-columns: 1fr 1fr;
         gap: 10px;
         margin-top: 2px;
+        max-width: 520px;
       }
       .portfolio-item .k {
         font-size: 10px;
@@ -443,7 +446,7 @@ class handler(BaseHTTPRequestHandler):
         padding: 12px;
         border: 1px solid var(--line-soft);
         border-radius: 14px;
-        background: #101419d4;
+        background: #0d1014d4;
       }
       .control {
         display: flex;
@@ -519,10 +522,10 @@ class handler(BaseHTTPRequestHandler):
       .tv-meta {
         padding: 11px 14px;
         border-bottom: 1px solid var(--line-soft);
-        color: #c7ced7;
+        color: #c2c9d1;
         font-size: 12.5px;
         letter-spacing: 0.03em;
-        background: #11161c;
+        background: #0e1115;
       }
       .tv-wrap {
         height: 420px;
@@ -551,7 +554,7 @@ class handler(BaseHTTPRequestHandler):
         line-height: 1.35;
         vertical-align: top;
       }
-      td { color: #dce2ea; }
+      td { color: #d8dee6; }
       th {
         color: var(--th-text);
         font-weight: 700;
@@ -561,7 +564,7 @@ class handler(BaseHTTPRequestHandler):
         background: var(--th-bg);
       }
       tr:nth-child(even) td { background: var(--row-alt); }
-      tbody tr:hover td { background: #181d25; }
+      tbody tr:hover td { background: #15191f; }
       .ok { color: var(--ok); }
       .warn { color: var(--warn); }
       .err { color: var(--err); }
@@ -574,7 +577,7 @@ class handler(BaseHTTPRequestHandler):
         font-size: 11px;
         letter-spacing: 0.03em;
         padding: 3px 8px;
-        background: #11161d;
+        background: #0f1216;
       }
       .badge.ok { border-color: #2a7f5c; background: #123425; color: #6ce7ae; }
       .badge.warn { border-color: #8b6a2f; background: #35280f; color: #ffd28a; }
@@ -584,11 +587,11 @@ class handler(BaseHTTPRequestHandler):
         padding: 10px 13px;
         border-radius: 11px;
         border: 1px solid var(--line);
-        background: #10161c;
+        background: #0f1216;
         box-shadow: inset 0 1px 0 #ffffff0a;
       }
       .status-main {
-        color: #dce5f0;
+        color: #d8e0ea;
         font-size: 13.5px;
         font-weight: 600;
         line-height: 1.35;
@@ -596,12 +599,12 @@ class handler(BaseHTTPRequestHandler):
       .status-meta {
         margin-top: 4px;
         font-size: 11.5px;
-        color: #9aa7b8;
+        color: #96a3b2;
       }
       .status.status-ok { border-color: #2a7f5c; background: #102b21; color: #7deab5; }
       .status.status-warn { border-color: #8b6a2f; background: #30250f; color: #ffd28a; }
       .status.status-err { border-color: #8b3a45; background: #32161a; color: #ff9ba7; }
-      .status.status-info { border-color: var(--line); background: #10161c; color: var(--sub); }
+      .status.status-info { border-color: var(--line); background: #0f1216; color: var(--sub); }
       @media (max-width: 1200px) {
         .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
         .control.token { grid-column: span 7; }
@@ -610,7 +613,7 @@ class handler(BaseHTTPRequestHandler):
       }
       @media (max-width: 900px) {
         h1 { font-size: 30px; }
-        .portfolio-card { min-height: 200px; padding: 14px; }
+        .portfolio-card { width: 100%; min-height: 200px; padding: 14px; }
         .portfolio-main { padding-right: 56px; }
         .cc-number { font-size: 15px; letter-spacing: 0.13em; }
         .portfolio-user { font-size: 16px; }

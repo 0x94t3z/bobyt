@@ -215,107 +215,188 @@ class handler(BaseHTTPRequestHandler):
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Bobyt Trading Dashboard</title>
     <style>
+      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
       :root {
-        --bg: #060b16;
-        --bg2: #0f182c;
-        --line: #243659;
-        --txt: #e9efff;
-        --sub: #a9b8dc;
-        --ok: #2fd08a;
-        --warn: #ffb458;
-        --err: #ff6d7e;
+        --bg: #060c1c;
+        --panel: #0d1730cc;
+        --panel-solid: #0f1b37;
+        --line: #283d67;
+        --line-soft: #213152;
+        --txt: #eaf0ff;
+        --sub: #9cb0d8;
+        --ok: #39d98a;
+        --warn: #ffc368;
+        --err: #ff7a87;
+        --accent: #6d8dff;
       }
       * { box-sizing: border-box; }
       body {
-        font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif;
-        background: radial-gradient(1200px 500px at 10% -10%, #203b73 0%, transparent 60%), var(--bg);
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(900px 500px at 5% -10%, #294f9f66 0%, transparent 62%),
+          radial-gradient(750px 450px at 95% 0%, #2f2f7a44 0%, transparent 58%),
+          var(--bg);
         color: var(--txt);
         margin: 0;
       }
-      .wrap { max-width: 1200px; margin: 28px auto; padding: 0 16px; }
+      .wrap { max-width: 1320px; margin: 28px auto 36px auto; padding: 0 18px; }
       .hero {
-        background: linear-gradient(135deg, #101d38 0%, #0f182c 100%);
+        background: linear-gradient(155deg, #0f1d3fcc 0%, #0d1832cc 100%);
         border: 1px solid var(--line);
-        border-radius: 14px;
-        padding: 18px;
+        border-radius: 16px;
+        padding: 20px;
         margin-bottom: 14px;
+        box-shadow: 0 18px 45px #03091699;
+        backdrop-filter: blur(6px);
       }
+      .title-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 14px;
+      }
+      .chip {
+        border: 1px solid #4666a0;
+        background: #142347;
+        color: #c7d7ff;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      h1 { margin: 0 0 6px 0; font-size: 40px; letter-spacing: -0.02em; }
       .muted { color: var(--sub); }
       .controls {
         display: grid;
-        grid-template-columns: 2fr 1fr 1fr;
+        grid-template-columns: 2fr 0.8fr 1fr;
         gap: 10px;
-        margin-top: 12px;
+        margin-top: 14px;
       }
       input, button {
-        height: 40px;
-        border-radius: 10px;
+        height: 42px;
+        border-radius: 12px;
         border: 1px solid var(--line);
-        background: #0b1324;
+        background: #0a152c;
         color: var(--txt);
         padding: 0 12px;
+        font-family: inherit;
+        font-size: 14px;
+      }
+      input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px #6d8dff2b;
       }
       button {
         cursor: pointer;
-        background: linear-gradient(135deg, #ff6d6d 0%, #f0544f 100%);
+        background: linear-gradient(135deg, #ff7c74 0%, #f15653 100%);
         border: 0;
         font-weight: 700;
+        transition: transform 120ms ease, filter 120ms ease;
       }
+      button:hover { filter: brightness(1.06); transform: translateY(-1px); }
       .stats {
         display: grid;
-        grid-template-columns: repeat(7, 1fr);
+        grid-template-columns: repeat(7, minmax(0, 1fr));
         gap: 10px;
         margin-top: 12px;
       }
       .stat {
         border: 1px solid var(--line);
-        background: var(--bg2);
-        border-radius: 12px;
-        padding: 10px 12px;
+        background: var(--panel-solid);
+        border-radius: 13px;
+        padding: 11px 12px;
       }
-      .k { color: var(--sub); font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
-      .v { font-size: 26px; font-weight: 700; margin-top: 4px; }
+      .k { color: var(--sub); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+      .v { font-size: 34px; font-weight: 700; margin-top: 4px; line-height: 1.03; letter-spacing: -0.02em; }
       .box {
         margin-top: 14px;
         border: 1px solid var(--line);
-        border-radius: 12px;
-        background: var(--bg2);
+        border-radius: 13px;
+        background: var(--panel);
         overflow: hidden;
       }
-      .box h3 { margin: 0; padding: 12px; border-bottom: 1px solid var(--line); }
-      table { width: 100%; border-collapse: collapse; }
+      .box h3 {
+        margin: 0;
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--line-soft);
+        font-size: 24px;
+        letter-spacing: -0.01em;
+      }
+      .table-wrap { overflow-x: auto; }
+      table { width: 100%; border-collapse: collapse; min-width: 820px; }
       th, td {
         text-align: left;
-        padding: 10px 12px;
-        border-bottom: 1px solid #1f3052;
+        padding: 9px 12px;
+        border-bottom: 1px solid #1c2b48;
         font-size: 13px;
+        vertical-align: top;
       }
-      th { color: var(--sub); font-weight: 600; }
+      th {
+        color: #acc0eb;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        font-size: 11px;
+        background: #0e1934;
+      }
+      tr:nth-child(even) td { background: #0d1830a8; }
       .ok { color: var(--ok); }
       .warn { color: var(--warn); }
       .err { color: var(--err); }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 11px;
+        letter-spacing: 0.03em;
+        padding: 3px 8px;
+        background: #0a1630;
+      }
+      .badge.ok { border-color: #2a7f5c; background: #123425; color: #6ce7ae; }
+      .badge.warn { border-color: #8b6a2f; background: #35280f; color: #ffd28a; }
+      .badge.err { border-color: #8b3a45; background: #36151a; color: #ff95a1; }
       .status {
         margin-top: 10px;
         padding: 10px 12px;
-        border-radius: 10px;
+        border-radius: 11px;
         border: 1px solid var(--line);
-        background: #0c1528;
+        background: #0c162f;
         color: var(--sub);
       }
+      .status.status-ok { border-color: #2a7f5c; background: #102b21; color: #7deab5; }
+      .status.status-warn { border-color: #8b6a2f; background: #30250f; color: #ffd28a; }
+      .status.status-err { border-color: #8b3a45; background: #32161a; color: #ff9ba7; }
+      .status.status-info { border-color: var(--line); background: #0c162f; color: var(--sub); }
+      @media (max-width: 1200px) {
+        .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      }
       @media (max-width: 900px) {
+        h1 { font-size: 30px; }
         .controls { grid-template-columns: 1fr; }
         .stats { grid-template-columns: 1fr 1fr; }
+        .title-row { flex-direction: column; align-items: flex-start; }
       }
     </style>
   </head>
   <body>
     <div class="wrap">
       <div class="hero">
-        <h1 style="margin:0 0 6px 0;">Bobyt Trading Dashboard</h1>
-        <div class="muted">Frontend monitors backend snapshots. Trading/scans run only from protected backend endpoint.</div>
+        <div class="title-row">
+          <div>
+            <h1>Bobyt Trading Dashboard</h1>
+            <div class="muted">Frontend monitors backend snapshots. Trading/scans run only from protected backend endpoint.</div>
+          </div>
+          <div class="chip">Bybit Spot Monitor</div>
+        </div>
         <div class="controls">
           <input id="token" type="password" placeholder="Bearer token (TRADING_BOT_STATUS_TOKEN)" autocomplete="off" />
-          <input id="refresh" type="number" min="15" value="60" />
+          <input id="refresh" type="number" min="15" value="60" title="Auto-refresh interval in seconds" />
           <button id="refreshBtn">Refresh Now</button>
         </div>
         <div class="status" id="status">Ready. Waiting for backend snapshot.</div>
@@ -333,6 +414,7 @@ class handler(BaseHTTPRequestHandler):
 
       <div class="box">
         <h3>Performance</h3>
+        <div class="table-wrap">
         <table>
           <thead>
             <tr>
@@ -343,10 +425,12 @@ class handler(BaseHTTPRequestHandler):
             <tr><td colspan="7" class="muted">No performance data yet.</td></tr>
           </tbody>
         </table>
+        </div>
       </div>
 
       <div class="box">
         <h3>Top Results</h3>
+        <div class="table-wrap">
         <table>
           <thead>
             <tr>
@@ -357,10 +441,12 @@ class handler(BaseHTTPRequestHandler):
             <tr><td colspan="8" class="muted">No data yet. Waiting backend snapshot.</td></tr>
           </tbody>
         </table>
+        </div>
       </div>
 
       <div class="box">
         <h3>Execution Events</h3>
+        <div class="table-wrap">
         <table>
           <thead>
             <tr>
@@ -371,6 +457,7 @@ class handler(BaseHTTPRequestHandler):
             <tr><td colspan="5" class="muted">No execution events in this snapshot.</td></tr>
           </tbody>
         </table>
+        </div>
       </div>
     </div>
     <script>
@@ -408,6 +495,25 @@ class handler(BaseHTTPRequestHandler):
         if (a.includes("SELL")) return "err";
         if (a.includes("WAIT")) return "warn";
         return "";
+      }
+
+      function setStatus(message, tone = "info") {
+        statusEl.className = "status status-" + tone;
+        statusEl.textContent = message;
+      }
+
+      function fmtPrice(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return text(v);
+        if (Math.abs(n) >= 1000) return n.toFixed(2);
+        if (Math.abs(n) >= 1) return n.toFixed(4);
+        return n.toFixed(6);
+      }
+
+      function fmtScore(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return text(v);
+        return n.toFixed(2);
       }
 
       function eventStatus(ev) {
@@ -487,12 +593,18 @@ class handler(BaseHTTPRequestHandler):
         rows.forEach((r) => {
           const tr = document.createElement("tr");
           appendCell(tr, r.symbol);
-          appendCell(tr, r.action, rowClass(r.action));
-          appendCell(tr, r.score);
-          appendCell(tr, r.price);
-          appendCell(tr, r.entry);
-          appendCell(tr, r.tp);
-          appendCell(tr, r.sl);
+          const actionTd = document.createElement("td");
+          const actionBadge = document.createElement("span");
+          const tone = rowClass(r.action);
+          actionBadge.className = "badge " + tone;
+          actionBadge.textContent = text(r.action);
+          actionTd.appendChild(actionBadge);
+          tr.appendChild(actionTd);
+          appendCell(tr, fmtScore(r.score));
+          appendCell(tr, fmtPrice(r.price));
+          appendCell(tr, fmtPrice(r.entry));
+          appendCell(tr, fmtPrice(r.tp));
+          appendCell(tr, fmtPrice(r.sl));
           appendCell(tr, r.note);
           tbody.appendChild(tr);
         });
@@ -514,7 +626,12 @@ class handler(BaseHTTPRequestHandler):
           const tr = document.createElement("tr");
           appendCell(tr, ev.time);
           appendCell(tr, ev.symbol);
-          appendCell(tr, status, statusClass);
+          const statusTd = document.createElement("td");
+          const statusBadge = document.createElement("span");
+          statusBadge.className = "badge " + statusClass;
+          statusBadge.textContent = status;
+          statusTd.appendChild(statusBadge);
+          tr.appendChild(statusTd);
           appendCell(tr, submitted);
           appendCell(tr, result.message || "");
           tbody.appendChild(tr);
@@ -524,12 +641,12 @@ class handler(BaseHTTPRequestHandler):
       async function fetchStatus() {
         const url = "/api/status";
 
-        statusEl.textContent = "Refreshing monitoring data...";
+        setStatus("Refreshing monitoring data...", "info");
         try {
           const res = await fetch(url, { method: "GET", headers: getAuthHeaders() });
           const data = await res.json();
           if (!res.ok || !data.ok) {
-            statusEl.textContent = "Status fetch failed: " + (data.error || ("HTTP " + res.status));
+            setStatus("Status fetch failed: " + (data.error || ("HTTP " + res.status)), "err");
             return;
           }
           if (!data.has_data) {
@@ -543,7 +660,7 @@ class handler(BaseHTTPRequestHandler):
             setPlaceholderRow($("perfRows"), 7, "No performance data yet.");
             setPlaceholderRow($("rows"), 8, "No backend snapshot yet. Trigger /api/scan from cron first.");
             setPlaceholderRow($("execRows"), 5, "No execution events yet.");
-            statusEl.textContent = "No backend snapshot yet. Run /api/scan (cron/manual) first.";
+            setStatus("No backend snapshot yet. Run /api/scan (cron/manual) first.", "warn");
             return;
           }
           $("m_scanned").textContent = text(data.summary?.scanned);
@@ -561,12 +678,14 @@ class handler(BaseHTTPRequestHandler):
               ? data.execution_events
               : (data.execution_events_history || []);
           renderExecutionRows(execFeed);
-            statusEl.textContent =
+            setStatus(
               "Backend last scan: " + text(data.time) +
               " | state: " + text(data.state_file) +
-              " | backend: " + text(data.state_backend || data.status_backend || "file");
+              " | backend: " + text(data.state_backend || data.status_backend || "file"),
+              "ok"
+            );
         } catch (e) {
-          statusEl.textContent = "Network error: " + e;
+          setStatus("Network error: " + e, "err");
         }
       }
 

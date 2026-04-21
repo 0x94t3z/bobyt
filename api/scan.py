@@ -303,6 +303,79 @@ class handler(BaseHTTPRequestHandler):
         max-width: 760px;
         line-height: 1.45;
       }
+      .portfolio-card {
+        margin-top: 14px;
+        border: 1px solid #3b3224;
+        border-radius: 16px;
+        overflow: hidden;
+        background: radial-gradient(120% 130% at 5% 5%, #2a2318 0%, #171c25 45%, #111319 100%);
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        min-height: 148px;
+      }
+      .portfolio-main {
+        padding: 14px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .portfolio-label {
+        font-size: 11px;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: #c8b69b;
+        font-weight: 700;
+      }
+      .portfolio-user {
+        font-size: 23px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+      .portfolio-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .portfolio-item .k {
+        font-size: 10px;
+      }
+      .portfolio-item .v {
+        font-size: 24px;
+        margin-top: 3px;
+      }
+      .portfolio-visual {
+        position: relative;
+        border-left: 1px solid #2f3744;
+        background:
+          radial-gradient(110px 90px at 75% 30%, #ffbf2f2e 0%, transparent 80%),
+          linear-gradient(165deg, #171d27 0%, #0f131b 100%);
+      }
+      .portfolio-coin {
+        position: absolute;
+        right: 28px;
+        top: 24px;
+        width: 88px;
+        height: 88px;
+        border-radius: 50%;
+        background: linear-gradient(145deg, #ffd064 0%, #f2a51f 60%, #d8850f 100%);
+        color: #201807;
+        font-size: 40px;
+        font-weight: 900;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: inset 0 2px 0 #fff0bf, 0 14px 28px #00000080;
+      }
+      .portfolio-brand {
+        position: absolute;
+        right: 16px;
+        bottom: 12px;
+        color: #f6cc7e;
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
       .controls {
         display: grid;
         grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -464,6 +537,9 @@ class handler(BaseHTTPRequestHandler):
       }
       @media (max-width: 900px) {
         h1 { font-size: 30px; }
+        .portfolio-card { grid-template-columns: 1fr; }
+        .portfolio-visual { min-height: 96px; border-left: 0; border-top: 1px solid #2f3744; }
+        .portfolio-coin { width: 66px; height: 66px; font-size: 30px; top: 14px; }
         .controls { grid-template-columns: 1fr; padding: 10px; }
         .control.token, .control.refresh, .control.action { grid-column: span 1; }
         .stats { grid-template-columns: 1fr 1fr; }
@@ -483,6 +559,26 @@ class handler(BaseHTTPRequestHandler):
             <div class="muted header-sub">Frontend monitors backend snapshots. Trading/scans run only from protected backend endpoint.</div>
           </div>
           <div class="chip">Bybit Spot Monitor</div>
+        </div>
+        <div class="portfolio-card">
+          <div class="portfolio-main">
+            <div class="portfolio-label">Trader Profile</div>
+            <div class="portfolio-user" id="u_username">@0x94t3z</div>
+            <div class="portfolio-grid">
+              <div class="portfolio-item">
+                <div class="k">Total Balance (USDT)</div>
+                <div class="v ok" id="u_balance">-</div>
+              </div>
+              <div class="portfolio-item">
+                <div class="k">Total Profit (USDT)</div>
+                <div class="v" id="u_profit">-</div>
+              </div>
+            </div>
+          </div>
+          <div class="portfolio-visual">
+            <div class="portfolio-coin">B</div>
+            <div class="portfolio-brand">Bobyt Prime</div>
+          </div>
         </div>
         <div class="controls">
           <div class="control token">
@@ -583,6 +679,7 @@ class handler(BaseHTTPRequestHandler):
       let tradingViewScriptPromise = null;
       let tradingViewWidget = null;
       let currentTradingViewSymbol = "";
+      let currentTradingViewInterval = "";
       let lastSnapshot = null;
 
       function text(v) {
@@ -663,15 +760,45 @@ class handler(BaseHTTPRequestHandler):
         return "BYBIT:" + sym;
       }
 
+      function parseUtcMillis(raw) {
+        const s = String(raw || "").trim();
+        if (!s) return 0;
+        const iso = s.endsWith("UTC") ? s.replace(" UTC", "Z") : s;
+        const ms = Date.parse(iso);
+        return Number.isFinite(ms) ? ms : 0;
+      }
+
+      function isRecentExecution(ev, snapshot) {
+        const nowMs = parseUtcMillis(snapshot?.time) || Date.now();
+        const evMs = parseUtcMillis(ev?.time);
+        if (!evMs) return false;
+        const ageMs = Math.max(0, nowMs - evMs);
+        return ageMs <= (6 * 60 * 60 * 1000); // 6h
+      }
+
+      function toTradingViewInterval(rawInterval) {
+        const key = String(rawInterval || "").trim().toLowerCase();
+        const map = {
+          "1m": "1",
+          "3m": "3",
+          "5m": "5",
+          "15m": "15",
+          "30m": "30",
+          "45m": "45",
+          "1h": "60",
+          "2h": "120",
+          "4h": "240",
+          "6h": "360",
+          "12h": "720",
+          "1d": "D",
+          "1w": "W",
+        };
+        return map[key] || "15";
+      }
+
       function pickTradingSymbol(snapshot, executionFeed) {
         const openSymbols = Array.isArray(snapshot?.positions?.open_symbols) ? snapshot.positions.open_symbols : [];
         if (openSymbols.length > 0) return { symbol: openSymbols[0], reason: "open position" };
-
-        const feed = Array.isArray(executionFeed) ? executionFeed : [];
-        if (feed.length > 0) {
-          const latest = feed[feed.length - 1] || {};
-          if (latest.symbol) return { symbol: latest.symbol, reason: "latest execution event" };
-        }
 
         const topResults = Array.isArray(snapshot?.top_results) ? snapshot.top_results : [];
         const buyCandidate = topResults.find((row) => String(row?.action || "").includes("BUY"));
@@ -679,6 +806,15 @@ class handler(BaseHTTPRequestHandler):
 
         const ranked = topResults[0];
         if (ranked?.symbol) return { symbol: ranked.symbol, reason: "top ranked symbol" };
+
+        const feed = Array.isArray(executionFeed) ? executionFeed : [];
+        if (feed.length > 0) {
+          const latest = feed[feed.length - 1] || {};
+          if (latest.symbol && isRecentExecution(latest, snapshot)) {
+            return { symbol: latest.symbol, reason: "recent execution event" };
+          }
+          if (latest.symbol) return { symbol: latest.symbol, reason: "latest execution event (history)" };
+        }
 
         return { symbol: "", reason: "no trade symbol yet" };
       }
@@ -707,6 +843,7 @@ class handler(BaseHTTPRequestHandler):
 
         const picked = pickTradingSymbol(snapshot || {}, executionFeed || []);
         const tvSymbol = toTradingViewSymbol(picked.symbol);
+        const tvInterval = toTradingViewInterval(snapshot?.scan_interval);
         if (!tvSymbol) {
           tvMeta.textContent = "Focus: waiting for trade symbol...";
           toggleTradingViewFallback(
@@ -716,10 +853,14 @@ class handler(BaseHTTPRequestHandler):
           return;
         }
 
-        tvMeta.textContent = "Focus: " + tvSymbol + " (" + picked.reason + ")";
+        tvMeta.textContent = "Focus: " + tvSymbol + " (" + picked.reason + ") | interval " + tvInterval;
         toggleTradingViewFallback(false);
 
-        if (currentTradingViewSymbol === tvSymbol && tradingViewWidget) return;
+        if (
+          currentTradingViewSymbol === tvSymbol &&
+          currentTradingViewInterval === tvInterval &&
+          tradingViewWidget
+        ) return;
 
         try {
           await ensureTradingViewScript();
@@ -729,6 +870,7 @@ class handler(BaseHTTPRequestHandler):
         }
 
         currentTradingViewSymbol = tvSymbol;
+        currentTradingViewInterval = tvInterval;
         tradingViewWidget = null;
         host.innerHTML = '<div id="tvChart"></div>';
 
@@ -737,7 +879,7 @@ class handler(BaseHTTPRequestHandler):
             container_id: "tvChart",
             autosize: true,
             symbol: tvSymbol,
-            interval: "15",
+            interval: tvInterval,
             timezone: "Etc/UTC",
             theme: "dark",
             style: "1",
@@ -898,6 +1040,9 @@ class handler(BaseHTTPRequestHandler):
             $("m_exec").textContent = "-";
             $("m_usdt").textContent = "-";
             $("m_usdt_note").textContent = "-";
+            $("u_balance").textContent = "-";
+            $("u_profit").textContent = "-";
+            $("u_profit").className = "v";
             setPlaceholderRow($("perfRows"), 7, "No performance data yet.");
             setPlaceholderRow($("rows"), 8, "No backend snapshot yet. Trigger /api/scan from cron first.");
             setPlaceholderRow($("execRows"), 5, "No execution events yet.");
@@ -928,6 +1073,15 @@ class handler(BaseHTTPRequestHandler):
             $("m_usdt").textContent = fmtUsdt(available);
             $("m_usdt_note").textContent = "wallet " + fmtUsdt(wallet);
           }
+
+          const equity = num(bal.equity_usdt, 0);
+          const walletTotal = num(bal.usdt_wallet, num(bal.usdt_available, 0));
+          const totalBalance = equity > 0 ? equity : walletTotal;
+          $("u_balance").textContent = fmtUsdt(totalBalance);
+
+          const netProfit = num(data.performance?.overall?.net_pnl_usdt, 0);
+          $("u_profit").textContent = (netProfit >= 0 ? "+" : "") + fmtUsdt(netProfit);
+          $("u_profit").className = netProfit >= 0 ? "v ok" : "v err";
 
           renderPerformanceRows(data.performance || {});
           renderTopRows(data.top_results || []);
@@ -1104,6 +1258,9 @@ class handler(BaseHTTPRequestHandler):
                 "config_path": str(config_path.relative_to(ROOT_DIR)),
                 "monitor_only": bool(monitor_only),
                 "execution_mode": execution_mode,
+                "scan_interval": str(
+                    cycle.get("config", runtime_config).get("interval", runtime_config.get("interval", "15m"))
+                ),
                 "runtime_notes": cycle.get("runtime_notes", runtime_config.get("_runtime_notes", [])),
                 "state_file": cycle.get("state_file"),
                 "state_persisted": bool(cycle.get("state_persisted", not monitor_only)),

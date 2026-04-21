@@ -308,24 +308,37 @@ class handler(BaseHTTPRequestHandler):
       .portfolio-card {
         margin-top: 14px;
         position: relative;
-        width: min(560px, 100%);
+        width: min(520px, 100%);
         margin-right: auto;
-        border: 1px solid #4a3a20;
-        border-radius: 18px;
+        border: 1px solid #6a4f1f;
+        border-radius: 20px;
         overflow: hidden;
         background:
-          radial-gradient(180px 140px at 86% 18%, #ffc74d2a 0%, transparent 78%),
-          linear-gradient(145deg, #2f2618 0%, #1b1d21 44%, #0f1115 100%);
-        aspect-ratio: 1.586;
-        min-height: 220px;
-        padding: 18px;
-        box-shadow: inset 0 1px 0 #ffe8b940, 0 14px 32px #00000066;
+          radial-gradient(220px 180px at 85% 18%, #ffcb5d22 0%, transparent 70%),
+          radial-gradient(220px 160px at 8% 92%, #f2a51b1a 0%, transparent 72%),
+          linear-gradient(122deg, #2a2116 0%, #16181d 52%, #0b0f17 100%);
+        aspect-ratio: 1.586 / 1;
+        min-height: 300px;
+        padding: 20px;
+        box-shadow: inset 0 1px 0 #fff4c440, inset 0 0 0 1px #3f3118, 0 16px 36px #00000080;
       }
       .portfolio-card::before {
         content: "";
         position: absolute;
-        inset: -45% 20% 55% -40%;
-        background: linear-gradient(100deg, #fff2c01c 0%, transparent 55%);
+        inset: -50% 18% 58% -35%;
+        background: linear-gradient(98deg, #fff2cb26 0%, transparent 56%);
+        pointer-events: none;
+      }
+      .portfolio-card::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(
+          90deg,
+          transparent 0 11px,
+          #ffffff03 11px 12px
+        );
+        mix-blend-mode: soft-light;
         pointer-events: none;
       }
       .portfolio-main {
@@ -340,23 +353,23 @@ class handler(BaseHTTPRequestHandler):
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 12px;
+        gap: 10px;
       }
       .cc-brand {
-        font-size: 12px;
-        letter-spacing: 0.11em;
+        font-size: 13px;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
         color: #ffca68;
         font-weight: 800;
       }
       .cc-badge {
-        border: 1px solid #6f5527;
+        border: 1px solid #8d6722;
         border-radius: 999px;
-        padding: 4px 8px;
-        font-size: 10px;
-        color: #ffd894;
-        background: #2e2413;
-        letter-spacing: 0.07em;
+        padding: 5px 11px;
+        font-size: 11px;
+        color: #ffe2a4;
+        background: #2c2112;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
         font-weight: 700;
       }
@@ -370,20 +383,19 @@ class handler(BaseHTTPRequestHandler):
       .cc-middle {
         display: flex;
         flex-direction: column;
-        gap: 9px;
+        gap: 8px;
       }
       .cc-chip-row {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        width: 132px;
+        gap: 14px;
       }
       .cc-chip {
-        width: 46px;
-        height: 34px;
+        width: 56px;
+        height: 38px;
         border-radius: 8px;
-        background: linear-gradient(140deg, #e5c47e 0%, #b88a38 100%);
-        border: 1px solid #9d7430;
+        background: linear-gradient(145deg, #efca7f 0%, #c4943f 100%);
+        border: 1px solid #a47831;
         box-shadow: inset 0 1px 0 #fff0c8;
       }
       .cc-chip::before {
@@ -392,74 +404,93 @@ class handler(BaseHTTPRequestHandler):
         width: 100%;
         height: 100%;
         background:
-          linear-gradient(90deg, transparent 0 20%, #8f6a2f 20% 24%, transparent 24% 44%, #8f6a2f 44% 48%, transparent 48% 68%, #8f6a2f 68% 72%, transparent 72% 100%);
+          linear-gradient(90deg, transparent 0 20%, #8f6a2f 20% 23%, transparent 23% 43%, #8f6a2f 43% 46%, transparent 46% 66%, #8f6a2f 66% 69%, transparent 69% 100%);
         opacity: 0.45;
         border-radius: 8px;
       }
       .cc-circle {
-        width: 20px;
-        height: 20px;
+        width: 26px;
+        height: 26px;
         border-radius: 50%;
-        background: #ffbe40;
-        box-shadow: 0 0 0 6px #ffbe402a;
+        background: #ffbf3f;
+        box-shadow: 0 0 0 8px #ffbe4020;
+        position: relative;
+      }
+      .cc-circle::after {
+        content: "";
+        position: absolute;
+        left: 14px;
+        top: 0;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: #ffdb7f;
+        opacity: 0.75;
       }
       .cc-number {
-        font-size: 19px;
-        letter-spacing: 0.16em;
+        margin-top: 6px;
+        font-size: 22px;
+        letter-spacing: 0.14em;
         font-weight: 700;
         color: #f6efe3;
+        font-variant-numeric: tabular-nums;
       }
       .portfolio-user {
-        font-size: 17px;
+        font-size: 18px;
         font-weight: 600;
         letter-spacing: -0.005em;
         color: #f8f0df;
       }
       .cc-bottom {
         display: flex;
-        align-items: flex-end;
+        align-items: center;
         justify-content: space-between;
-        gap: 12px;
+        gap: 16px;
       }
       .portfolio-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 10px;
+        gap: 12px;
         width: 100%;
-        max-width: 360px;
+        max-width: 320px;
       }
       .portfolio-item .k {
-        font-size: 10px;
+        font-size: 11px;
         color: #bcae93;
       }
       .portfolio-item .v {
-        font-size: 18px;
+        font-size: 17px;
         margin-top: 3px;
       }
+      .cc-brand-stack {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        min-width: 88px;
+      }
       .portfolio-coin-mark {
-        position: absolute;
-        right: 16px;
-        bottom: 16px;
-        width: 48px;
-        height: 48px;
+        position: static;
+        width: 52px;
+        height: 52px;
         border-radius: 50%;
         background: linear-gradient(145deg, #ffd064 0%, #f2a51f 65%, #cf7f0e 100%);
         color: #201807;
-        font-size: 24px;
+        font-size: 22px;
         font-weight: 800;
         display: flex;
         align-items: center;
         justify-content: center;
         box-shadow: inset 0 2px 0 #fff0bf, 0 10px 20px #00000066;
-        z-index: 2;
       }
       .portfolio-brand {
         position: static;
         color: #e8d4af;
-        font-size: 10px;
-        letter-spacing: 0.1em;
+        font-size: 11px;
+        letter-spacing: 0.11em;
         text-transform: uppercase;
         font-weight: 700;
+        text-align: center;
       }
       .controls {
         display: grid;
@@ -636,21 +667,14 @@ class handler(BaseHTTPRequestHandler):
       }
       @media (max-width: 900px) {
         h1 { font-size: 30px; }
-        .portfolio-card { width: 100%; min-height: 200px; padding: 14px; }
-        .portfolio-main { padding-right: 56px; }
-        .cc-number { font-size: 15px; letter-spacing: 0.13em; }
-        .portfolio-user { font-size: 16px; }
+        .portfolio-card { width: 100%; min-height: 220px; padding: 14px; }
+        .cc-number { font-size: 16px; letter-spacing: 0.11em; }
+        .portfolio-user { font-size: 15px; }
         .portfolio-grid { grid-template-columns: 1fr; gap: 8px; }
         .portfolio-item .v { font-size: 19px; }
-        .portfolio-brand { display: none; }
-        .portfolio-coin-mark {
-          top: 14px;
-          right: 14px;
-          bottom: auto;
-          width: 34px;
-          height: 34px;
-          font-size: 16px;
-        }
+        .cc-brand-stack { min-width: 68px; gap: 5px; }
+        .portfolio-brand { font-size: 10px; }
+        .portfolio-coin-mark { width: 40px; height: 40px; font-size: 18px; }
         .controls { grid-template-columns: 1fr; padding: 10px; }
         .control.token, .control.refresh, .control.action { grid-column: span 1; }
         .stats { grid-template-columns: 1fr 1fr; }
@@ -698,10 +722,12 @@ class handler(BaseHTTPRequestHandler):
                   <div class="v" id="u_profit">-</div>
                 </div>
               </div>
-              <div class="portfolio-brand">Bobyt Prime</div>
+              <div class="cc-brand-stack">
+                <div class="portfolio-brand">Bobyt Prime</div>
+                <div class="portfolio-coin-mark">B</div>
+              </div>
             </div>
           </div>
-          <div class="portfolio-coin-mark">B</div>
         </div>
         <div class="controls">
           <div class="control token">

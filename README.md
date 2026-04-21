@@ -187,7 +187,8 @@ Only if you intentionally disable that protection should you set:
 | Variable | Purpose |
 |---|---|
 | `TRADING_BOT_STATE_BACKEND=postgres` | Enable Postgres persistence |
-| `TRADING_BOT_POSTGRES_URL=<neon_url>` | Neon connection string (`sslmode=require`) |
+| `NEW_TRADING_BOT_POSTGRES_URL=<neon_url>` | Preferred Neon connection string (`sslmode=require`) |
+| `TRADING_BOT_POSTGRES_URL=<neon_url>` | Legacy compatibility DB URL |
 | `TRADING_BOT_POSTGRES_TABLE` | Optional table override (default: `trading_bot_state_store`) |
 | `TRADING_BOT_CLOSED_TRADES_TABLE` | Optional closed-trade journal table (default: `trading_bot_closed_trades`) |
 | `TRADING_BOT_STATE_STORAGE_KEY` | Optional fixed key for bot state payload |
@@ -211,7 +212,7 @@ This repository uses:
 2. Import repo in Vercel.
 3. Add Vercel env vars:
    - live/auth vars (table above)
-   - Neon vars (`TRADING_BOT_STATE_BACKEND=postgres`, `TRADING_BOT_POSTGRES_URL=...`)
+   - Neon vars (`TRADING_BOT_STATE_BACKEND=postgres`, `NEW_TRADING_BOT_POSTGRES_URL=...`)
 4. Deploy.
 
 ### cron-job.org job

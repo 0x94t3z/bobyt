@@ -326,6 +326,22 @@ class handler(BaseHTTPRequestHandler):
         font-size: 24px;
         letter-spacing: -0.01em;
       }
+      .chart-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+        margin-top: 14px;
+      }
+      .chart-box { padding-bottom: 8px; }
+      .chart-wrap {
+        height: 290px;
+        padding: 10px 14px 6px 14px;
+      }
+      .chart-fallback {
+        padding: 12px 14px 14px 14px;
+        color: var(--sub);
+        font-size: 13px;
+      }
       .table-wrap { overflow-x: auto; }
       table { width: 100%; border-collapse: collapse; min-width: 820px; }
       th, td {
@@ -382,6 +398,9 @@ class handler(BaseHTTPRequestHandler):
         .stats { grid-template-columns: 1fr 1fr; }
         .title-row { flex-direction: column; align-items: flex-start; }
       }
+      @media (max-width: 980px) {
+        .chart-grid { grid-template-columns: 1fr; }
+      }
     </style>
   </head>
   <body>
@@ -410,6 +429,19 @@ class handler(BaseHTTPRequestHandler):
         <div class="stat"><div class="k">Pending Entries</div><div class="v warn" id="m_pending">-</div></div>
         <div class="stat"><div class="k">Errors</div><div class="v err" id="m_err">-</div></div>
         <div class="stat"><div class="k">Execution</div><div class="v" id="m_exec">-</div></div>
+      </div>
+
+      <div class="chart-grid">
+        <div class="box chart-box">
+          <h3>Signal Mix</h3>
+          <div class="chart-wrap"><canvas id="signalChart"></canvas></div>
+          <div class="chart-fallback" id="signalChartFallback" style="display:none;">No signal data yet.</div>
+        </div>
+        <div class="box chart-box">
+          <h3>Top Score Chart</h3>
+          <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
+          <div class="chart-fallback" id="scoreChartFallback" style="display:none;">No top results yet.</div>
+        </div>
       </div>
 
       <div class="box">
@@ -460,11 +492,14 @@ class handler(BaseHTTPRequestHandler):
         </div>
       </div>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script>
       const $ = (id) => document.getElementById(id);
       const statusEl = $("status");
       const tokenInput = $("token");
       let timer = null;
+      let signalChart = null;
+      let scoreChart = null;
 
       function text(v) {
         if (v === null || v === undefined || v === "") return "-";
@@ -522,6 +557,127 @@ class handler(BaseHTTPRequestHandler):
         if (r.success && !r.submitted) return "NOT_SUBMITTED";
         if (!r.success) return "FAILED";
         return "-";
+      }
+
+      function destroyChart(instance) {
+        if (instance && typeof instance.destroy === "function") instance.destroy();
+        return null;
+      }
+
+      function setChartFallback(chartId, fallbackId, show) {
+        const chartEl = $(chartId);
+        const fallbackEl = $(fallbackId);
+        if (!chartEl || !fallbackEl) return;
+        chartEl.style.display = show ? "none" : "block";
+        fallbackEl.style.display = show ? "block" : "none";
+      }
+
+      function chartActionClass(action) {
+        const a = String(action || "").toUpperCase();
+        if (a.includes("BUY")) return "BUY";
+        if (a.includes("SELL")) return "SELL";
+        if (a.includes("WAIT")) return "WAIT";
+        if (a.includes("HOLD")) return "HOLD";
+        return "OTHER";
+      }
+
+      function renderCharts(snapshot) {
+        if (!window.Chart) return;
+
+        const summary = (snapshot && snapshot.summary) || {};
+        const topResults = Array.isArray(snapshot && snapshot.top_results) ? snapshot.top_results : [];
+
+        const signalCounts = {
+          BUY: num(summary.buy_signals),
+          WAIT: num(summary.wait_signals),
+          SELL: 0,
+          HOLD: 0,
+          OTHER: 0,
+        };
+
+        topResults.forEach((row) => {
+          const actionClass = chartActionClass(row && row.action);
+          if (actionClass === "BUY" || actionClass === "WAIT" || actionClass === "SELL" || actionClass === "HOLD") {
+            signalCounts[actionClass] += 1;
+          } else {
+            signalCounts.OTHER += 1;
+          }
+        });
+
+        const signalLabels = ["BUY", "WAIT", "SELL", "HOLD", "OTHER"];
+        const signalValues = signalLabels.map((k) => signalCounts[k] || 0);
+        const signalTotal = signalValues.reduce((a, b) => a + b, 0);
+        setChartFallback("signalChart", "signalChartFallback", signalTotal <= 0);
+        signalChart = destroyChart(signalChart);
+        if (signalTotal > 0) {
+          const ctx = $("signalChart").getContext("2d");
+          signalChart = new window.Chart(ctx, {
+            type: "doughnut",
+            data: {
+              labels: signalLabels,
+              datasets: [
+                {
+                  data: signalValues,
+                  backgroundColor: ["#39d98a", "#ffc368", "#ff7a87", "#6d8dff", "#8ca0c7"],
+                  borderColor: "#0f1b37",
+                  borderWidth: 2,
+                  hoverOffset: 6,
+                },
+              ],
+            },
+            options: {
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { labels: { color: "#dbe6ff", font: { family: "Space Grotesk" } } },
+              },
+            },
+          });
+        }
+
+        const scoreRows = topResults
+          .map((row) => ({
+            symbol: text(row && row.symbol),
+            score: num(row && row.score, NaN),
+          }))
+          .filter((row) => Number.isFinite(row.score))
+          .slice(0, 8);
+
+        setChartFallback("scoreChart", "scoreChartFallback", scoreRows.length === 0);
+        scoreChart = destroyChart(scoreChart);
+        if (scoreRows.length > 0) {
+          const ctx = $("scoreChart").getContext("2d");
+          scoreChart = new window.Chart(ctx, {
+            type: "bar",
+            data: {
+              labels: scoreRows.map((r) => r.symbol),
+              datasets: [
+                {
+                  label: "Score",
+                  data: scoreRows.map((r) => Number(r.score.toFixed(2))),
+                  backgroundColor: "#6d8dff",
+                  borderRadius: 6,
+                  maxBarThickness: 36,
+                },
+              ],
+            },
+            options: {
+              maintainAspectRatio: false,
+              scales: {
+                x: {
+                  ticks: { color: "#b9c9ec", font: { family: "Space Grotesk" } },
+                  grid: { color: "#1d2a47" },
+                },
+                y: {
+                  ticks: { color: "#b9c9ec", font: { family: "Space Grotesk" } },
+                  grid: { color: "#1d2a47" },
+                },
+              },
+              plugins: {
+                legend: { display: false },
+              },
+            },
+          });
+        }
       }
 
       function getAuthHeaders() {
@@ -660,6 +816,7 @@ class handler(BaseHTTPRequestHandler):
             setPlaceholderRow($("perfRows"), 7, "No performance data yet.");
             setPlaceholderRow($("rows"), 8, "No backend snapshot yet. Trigger /api/scan from cron first.");
             setPlaceholderRow($("execRows"), 5, "No execution events yet.");
+            renderCharts({ summary: {}, top_results: [] });
             setStatus("No backend snapshot yet. Run /api/scan (cron/manual) first.", "warn");
             return;
           }
@@ -673,6 +830,7 @@ class handler(BaseHTTPRequestHandler):
 
           renderPerformanceRows(data.performance || {});
           renderTopRows(data.top_results || []);
+          renderCharts(data || {});
           const execFeed =
             (Array.isArray(data.execution_events) && data.execution_events.length > 0)
               ? data.execution_events

@@ -828,6 +828,7 @@ def get_risk_limits(
     compounding_equity = live_equity if live_equity > 0 else effective_equity
     risk_per_trade_pct = to_float(risk_cfg.get("risk_per_trade_pct"), 0.0)
     max_daily_loss_pct = to_float(risk_cfg.get("max_daily_loss_pct"), 0.0)
+    max_daily_profit_pct = to_float(risk_cfg.get("max_daily_profit_pct"), 0.0)
     base_max_position_notional = to_float(risk_cfg.get("max_position_notional_usdt"), 0.0)
     max_position_notional = base_max_position_notional
 
@@ -866,6 +867,7 @@ def get_risk_limits(
         "risk_per_trade_usdt": sizing_equity * (risk_per_trade_pct / 100.0),
         # Keep daily circuit-breaker anchored to configured base equity.
         "daily_loss_limit_usdt": base_equity * (max_daily_loss_pct / 100.0),
+        "daily_profit_lock_usdt": base_equity * (max_daily_profit_pct / 100.0),
         "max_position_notional_usdt": max_position_notional,
     }
     if autoscale_enabled:
@@ -925,12 +927,18 @@ def update_circuit_breaker_status(
         live_equity_override_usdt=live_equity_override_usdt,
     )
     daily_limit = limits["daily_loss_limit_usdt"]
+    daily_profit_lock = limits.get("daily_profit_lock_usdt", 0.0)
 
     trigger_reason = ""
     if daily_limit > 0 and risk_state["daily_realized_pnl_usdt"] <= -daily_limit:
         trigger_reason = (
             f"Daily loss limit hit ({risk_state['daily_realized_pnl_usdt']:.2f} "
             f"<= -{daily_limit:.2f})"
+        )
+    elif daily_profit_lock > 0 and risk_state["daily_realized_pnl_usdt"] >= daily_profit_lock:
+        trigger_reason = (
+            f"Daily profit target hit ({risk_state['daily_realized_pnl_usdt']:.2f} "
+            f">= {daily_profit_lock:.2f})"
         )
     elif max_consecutive_losses > 0 and risk_state["consecutive_losses"] >= max_consecutive_losses:
         trigger_reason = (
@@ -3795,7 +3803,13 @@ def validate_config(config: Dict[str, Any]) -> None:
             if key in regime_cfg and to_float(regime_cfg.get(key), 0) < 0:
                 raise ValueError(f"strategy.regime_filter.{key} must be >= 0")
     risk_cfg = config.get("risk", {})
-    for key in ("account_equity_usdt", "risk_per_trade_pct", "max_daily_loss_pct", "max_position_notional_usdt"):
+    for key in (
+        "account_equity_usdt",
+        "risk_per_trade_pct",
+        "max_daily_loss_pct",
+        "max_daily_profit_pct",
+        "max_position_notional_usdt",
+    ):
         if key in risk_cfg and to_float(risk_cfg.get(key), 0) < 0:
             raise ValueError(f"risk.{key} must be >= 0")
     if "max_consecutive_losses" in risk_cfg and int(risk_cfg.get("max_consecutive_losses", 0)) < 0:

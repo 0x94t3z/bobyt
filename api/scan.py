@@ -242,6 +242,7 @@ class handler(BaseHTTPRequestHandler):
         --th-bg: #0e1934;
         --row-alt: #0d1830a8;
         --grid-line: #1d2a47;
+        --soft-glow: #96aeff26;
       }
       * { box-sizing: border-box; }
       body {
@@ -334,14 +335,14 @@ class handler(BaseHTTPRequestHandler):
         --row-alt: #3a2232a8;
         --grid-line: #522b45;
       }
-      .wrap { max-width: 1320px; margin: 28px auto 36px auto; padding: 0 18px; }
+      .wrap { max-width: 1420px; margin: 22px auto 34px auto; padding: 0 18px; }
       .hero {
         background: linear-gradient(155deg, var(--hero-start) 0%, var(--hero-end) 100%);
         border: 1px solid var(--line);
-        border-radius: 16px;
-        padding: 20px;
-        margin-bottom: 14px;
-        box-shadow: 0 18px 45px #03091699;
+        border-radius: 18px;
+        padding: 22px;
+        margin-bottom: 12px;
+        box-shadow: 0 18px 45px #03091699, inset 0 1px 0 #ffffff0d;
         backdrop-filter: blur(6px);
       }
       .title-row {
@@ -362,16 +363,40 @@ class handler(BaseHTTPRequestHandler):
         text-transform: uppercase;
         white-space: nowrap;
       }
-      h1 { margin: 0 0 6px 0; font-size: 40px; letter-spacing: -0.02em; }
+      h1 { margin: 0 0 6px 0; font-size: 42px; letter-spacing: -0.03em; line-height: 1.03; }
       .muted { color: var(--sub); }
+      .header-sub {
+        max-width: 760px;
+        line-height: 1.45;
+      }
       .controls {
         display: grid;
-        grid-template-columns: 2fr 0.8fr 1fr 1fr;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
         gap: 10px;
-        margin-top: 14px;
+        margin-top: 16px;
+        padding: 12px;
+        border: 1px solid var(--line-soft);
+        border-radius: 14px;
+        background: #0a142bcc;
+      }
+      .control {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .control.token { grid-column: span 5; }
+      .control.refresh { grid-column: span 2; }
+      .control.theme { grid-column: span 2; }
+      .control.action { grid-column: span 3; justify-content: flex-end; }
+      .control label {
+        color: var(--sub);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 700;
       }
       input, button, select {
-        height: 42px;
+        height: 44px;
         border-radius: 12px;
         border: 1px solid var(--line);
         background: var(--input-bg);
@@ -393,6 +418,7 @@ class handler(BaseHTTPRequestHandler):
         transition: transform 120ms ease, filter 120ms ease;
       }
       button:hover { filter: brightness(1.06); transform: translateY(-1px); }
+      .control.action button { width: 100%; }
       .stats {
         display: grid;
         grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -401,24 +427,26 @@ class handler(BaseHTTPRequestHandler):
       }
       .stat {
         border: 1px solid var(--line);
-        background: var(--panel-solid);
+        background: linear-gradient(180deg, #ffffff08 0%, #00000000 35%), var(--panel-solid);
         border-radius: 13px;
-        padding: 11px 12px;
+        padding: 12px 13px;
+        box-shadow: inset 0 1px 0 #ffffff0d;
       }
       .k { color: var(--sub); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
-      .v { font-size: 34px; font-weight: 700; margin-top: 4px; line-height: 1.03; letter-spacing: -0.02em; }
+      .v { font-size: 30px; font-weight: 700; margin-top: 6px; line-height: 1.03; letter-spacing: -0.02em; }
       .box {
         margin-top: 14px;
         border: 1px solid var(--line);
-        border-radius: 13px;
+        border-radius: 14px;
         background: var(--panel);
         overflow: hidden;
+        box-shadow: inset 0 1px 0 #ffffff0a;
       }
       .box h3 {
         margin: 0;
-        padding: 13px 14px;
+        padding: 13px 14px 12px 14px;
         border-bottom: 1px solid var(--line-soft);
-        font-size: 24px;
+        font-size: 22px;
         letter-spacing: -0.01em;
       }
       .chart-grid {
@@ -441,7 +469,7 @@ class handler(BaseHTTPRequestHandler):
       table { width: 100%; border-collapse: collapse; min-width: 820px; }
       th, td {
         text-align: left;
-        padding: 9px 12px;
+        padding: 10px 12px;
         border-bottom: 1px solid #1c2b48;
         font-size: 13px;
         vertical-align: top;
@@ -474,11 +502,12 @@ class handler(BaseHTTPRequestHandler):
       .badge.err { border-color: #8b3a45; background: #36151a; color: #ff95a1; }
       .status {
         margin-top: 10px;
-        padding: 10px 12px;
+        padding: 11px 13px;
         border-radius: 11px;
         border: 1px solid var(--line);
         background: #0c162f;
         color: var(--sub);
+        box-shadow: inset 0 1px 0 #ffffff0a;
       }
       .status.status-ok { border-color: #2a7f5c; background: #102b21; color: #7deab5; }
       .status.status-warn { border-color: #8b6a2f; background: #30250f; color: #ffd28a; }
@@ -486,10 +515,15 @@ class handler(BaseHTTPRequestHandler):
       .status.status-info { border-color: var(--line); background: #0c162f; color: var(--sub); }
       @media (max-width: 1200px) {
         .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .control.token { grid-column: span 6; }
+        .control.refresh { grid-column: span 2; }
+        .control.theme { grid-column: span 2; }
+        .control.action { grid-column: span 2; }
       }
       @media (max-width: 900px) {
         h1 { font-size: 30px; }
-        .controls { grid-template-columns: 1fr; }
+        .controls { grid-template-columns: 1fr; padding: 10px; }
+        .control.token, .control.refresh, .control.theme, .control.action { grid-column: span 1; }
         .stats { grid-template-columns: 1fr 1fr; }
         .title-row { flex-direction: column; align-items: flex-start; }
       }
@@ -504,20 +538,32 @@ class handler(BaseHTTPRequestHandler):
         <div class="title-row">
           <div>
             <h1>Bobyt Trading Dashboard</h1>
-            <div class="muted">Frontend monitors backend snapshots. Trading/scans run only from protected backend endpoint.</div>
+            <div class="muted header-sub">Frontend monitors backend snapshots. Trading/scans run only from protected backend endpoint.</div>
           </div>
           <div class="chip">Bybit Spot Monitor</div>
         </div>
         <div class="controls">
-          <input id="token" type="password" placeholder="Bearer token (TRADING_BOT_STATUS_TOKEN)" autocomplete="off" />
-          <input id="refresh" type="number" min="15" value="60" title="Auto-refresh interval in seconds" />
-          <select id="theme" title="Dashboard color theme">
-            <option value="midnight">Theme: Midnight</option>
-            <option value="ocean">Theme: Ocean</option>
-            <option value="graphite">Theme: Graphite</option>
-            <option value="sunset">Theme: Sunset</option>
-          </select>
-          <button id="refreshBtn">Refresh Now</button>
+          <div class="control token">
+            <label for="token">Status Token</label>
+            <input id="token" type="password" placeholder="Bearer token (TRADING_BOT_STATUS_TOKEN)" autocomplete="off" />
+          </div>
+          <div class="control refresh">
+            <label for="refresh">Refresh (s)</label>
+            <input id="refresh" type="number" min="15" value="60" title="Auto-refresh interval in seconds" />
+          </div>
+          <div class="control theme">
+            <label for="theme">Theme</label>
+            <select id="theme" title="Dashboard color theme">
+              <option value="midnight">Midnight</option>
+              <option value="ocean">Ocean</option>
+              <option value="graphite">Graphite</option>
+              <option value="sunset">Sunset</option>
+            </select>
+          </div>
+          <div class="control action">
+            <label for="refreshBtn">Action</label>
+            <button id="refreshBtn">Refresh Now</button>
+          </div>
         </div>
         <div class="status" id="status">Ready. Waiting for backend snapshot.</div>
       </div>

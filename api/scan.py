@@ -308,37 +308,24 @@ class handler(BaseHTTPRequestHandler):
       .portfolio-card {
         margin-top: 14px;
         position: relative;
-        width: min(520px, 100%);
+        width: min(500px, 100%);
         margin-right: auto;
-        border: 1px solid #6a4f1f;
-        border-radius: 20px;
+        border: 1px solid #4f3e1f;
+        border-radius: 18px;
         overflow: hidden;
         background:
-          radial-gradient(220px 180px at 85% 18%, #ffcb5d22 0%, transparent 70%),
-          radial-gradient(220px 160px at 8% 92%, #f2a51b1a 0%, transparent 72%),
-          linear-gradient(122deg, #2a2116 0%, #16181d 52%, #0b0f17 100%);
+          radial-gradient(260px 160px at 92% 8%, #f7a60014 0%, transparent 75%),
+          linear-gradient(120deg, #15110c 0%, #0f1217 56%, #090d14 100%);
         aspect-ratio: 1.586 / 1;
-        min-height: 300px;
-        padding: 20px;
-        box-shadow: inset 0 1px 0 #fff4c440, inset 0 0 0 1px #3f3118, 0 16px 36px #00000080;
+        min-height: 290px;
+        padding: 18px;
+        box-shadow: inset 0 1px 0 #ffffff16, inset 0 0 0 1px #2f2616, 0 14px 32px #0000008a;
       }
       .portfolio-card::before {
         content: "";
         position: absolute;
-        inset: -50% 18% 58% -35%;
-        background: linear-gradient(98deg, #fff2cb26 0%, transparent 56%);
-        pointer-events: none;
-      }
-      .portfolio-card::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background: repeating-linear-gradient(
-          90deg,
-          transparent 0 11px,
-          #ffffff03 11px 12px
-        );
-        mix-blend-mode: soft-light;
+        inset: -52% 20% 62% -35%;
+        background: linear-gradient(96deg, #fff0c81a 0%, transparent 60%);
         pointer-events: none;
       }
       .portfolio-main {
@@ -353,37 +340,37 @@ class handler(BaseHTTPRequestHandler):
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 10px;
+        gap: 8px;
       }
       .cc-brand {
-        font-size: 13px;
-        letter-spacing: 0.1em;
+        font-size: 12px;
+        letter-spacing: 0.09em;
         text-transform: uppercase;
-        color: #ffca68;
+        color: #ffbf53;
         font-weight: 800;
       }
       .cc-badge {
-        border: 1px solid #8d6722;
+        border: 1px solid #6d5427;
         border-radius: 999px;
-        padding: 5px 11px;
-        font-size: 11px;
-        color: #ffe2a4;
-        background: #2c2112;
-        letter-spacing: 0.08em;
+        padding: 4px 10px;
+        font-size: 10px;
+        color: #e8ca90;
+        background: #221a0f;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
         font-weight: 700;
       }
       .portfolio-label {
-        font-size: 11px;
+        font-size: 10px;
         letter-spacing: 0.09em;
         text-transform: uppercase;
-        color: #c8b69b;
+        color: #b8a98d;
         font-weight: 700;
       }
       .cc-middle {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 6px;
       }
       .cc-chip-row {
         display: flex;
@@ -391,10 +378,10 @@ class handler(BaseHTTPRequestHandler):
         gap: 14px;
       }
       .cc-chip {
-        width: 56px;
-        height: 38px;
+        width: 52px;
+        height: 34px;
         border-radius: 8px;
-        background: linear-gradient(145deg, #efca7f 0%, #c4943f 100%);
+        background: linear-gradient(145deg, #e3bd74 0%, #bc8d3b 100%);
         border: 1px solid #a47831;
         box-shadow: inset 0 1px 0 #fff0c8;
       }
@@ -409,37 +396,37 @@ class handler(BaseHTTPRequestHandler):
         border-radius: 8px;
       }
       .cc-circle {
-        width: 26px;
-        height: 26px;
+        width: 22px;
+        height: 22px;
         border-radius: 50%;
         background: #ffbf3f;
-        box-shadow: 0 0 0 8px #ffbe4020;
+        box-shadow: 0 0 0 6px #ffbe401f;
         position: relative;
       }
       .cc-circle::after {
         content: "";
         position: absolute;
-        left: 14px;
+        left: 11px;
         top: 0;
-        width: 26px;
-        height: 26px;
+        width: 22px;
+        height: 22px;
         border-radius: 50%;
         background: #ffdb7f;
-        opacity: 0.75;
+        opacity: 0.7;
       }
       .cc-number {
         margin-top: 6px;
-        font-size: 22px;
-        letter-spacing: 0.14em;
+        font-size: 20px;
+        letter-spacing: 0.12em;
         font-weight: 700;
         color: #f6efe3;
         font-variant-numeric: tabular-nums;
       }
       .portfolio-user {
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 600;
         letter-spacing: -0.005em;
-        color: #f8f0df;
+        color: #f2ead8;
       }
       .cc-bottom {
         display: flex;
@@ -450,16 +437,16 @@ class handler(BaseHTTPRequestHandler):
       .portfolio-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 12px;
+        gap: 10px;
         width: 100%;
-        max-width: 320px;
+        max-width: 300px;
       }
       .portfolio-item .k {
-        font-size: 11px;
-        color: #bcae93;
+        font-size: 10px;
+        color: #ae9f85;
       }
       .portfolio-item .v {
-        font-size: 17px;
+        font-size: 16px;
         margin-top: 3px;
       }
       .cc-brand-stack {
@@ -471,12 +458,12 @@ class handler(BaseHTTPRequestHandler):
       }
       .portfolio-coin-mark {
         position: static;
-        width: 52px;
-        height: 52px;
+        width: 46px;
+        height: 46px;
         border-radius: 50%;
         background: linear-gradient(145deg, #ffd064 0%, #f2a51f 65%, #cf7f0e 100%);
         color: #201807;
-        font-size: 22px;
+        font-size: 21px;
         font-weight: 800;
         display: flex;
         align-items: center;
@@ -486,8 +473,8 @@ class handler(BaseHTTPRequestHandler):
       .portfolio-brand {
         position: static;
         color: #e8d4af;
-        font-size: 11px;
-        letter-spacing: 0.11em;
+        font-size: 10px;
+        letter-spacing: 0.09em;
         text-transform: uppercase;
         font-weight: 700;
         text-align: center;
@@ -671,7 +658,7 @@ class handler(BaseHTTPRequestHandler):
         .cc-number { font-size: 16px; letter-spacing: 0.11em; }
         .portfolio-user { font-size: 15px; }
         .portfolio-grid { grid-template-columns: 1fr; gap: 8px; }
-        .portfolio-item .v { font-size: 19px; }
+        .portfolio-item .v { font-size: 18px; }
         .cc-brand-stack { min-width: 68px; gap: 5px; }
         .portfolio-brand { font-size: 10px; }
         .portfolio-coin-mark { width: 40px; height: 40px; font-size: 18px; }

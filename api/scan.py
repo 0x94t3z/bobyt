@@ -458,11 +458,12 @@ class handler(BaseHTTPRequestHandler):
       }
       .tv-box { margin-top: 14px; }
       .tv-meta {
-        padding: 10px 14px;
+        padding: 11px 14px;
         border-bottom: 1px solid var(--line-soft);
-        color: var(--sub);
-        font-size: 12px;
+        color: #c5cfdb;
+        font-size: 12.5px;
         letter-spacing: 0.03em;
+        background: #151b24;
       }
       .tv-wrap {
         height: 420px;
@@ -482,23 +483,26 @@ class handler(BaseHTTPRequestHandler):
         text-align: center;
       }
       .table-wrap { overflow-x: auto; }
-      table { width: 100%; border-collapse: collapse; min-width: 820px; }
+      table { width: 100%; border-collapse: collapse; min-width: 860px; }
       th, td {
         text-align: left;
-        padding: 10px 12px;
+        padding: 11px 12px;
         border-bottom: 1px solid var(--grid-line);
-        font-size: 13px;
+        font-size: 13.5px;
+        line-height: 1.35;
         vertical-align: top;
       }
+      td { color: #dbe3ee; }
       th {
         color: var(--th-text);
         font-weight: 700;
         letter-spacing: 0.04em;
         text-transform: uppercase;
-        font-size: 11px;
+        font-size: 11.5px;
         background: var(--th-bg);
       }
       tr:nth-child(even) td { background: var(--row-alt); }
+      tbody tr:hover td { background: #1d2634; }
       .ok { color: var(--ok); }
       .warn { color: var(--warn); }
       .err { color: var(--err); }
@@ -518,12 +522,22 @@ class handler(BaseHTTPRequestHandler):
       .badge.err { border-color: #8b3a45; background: #36151a; color: #ff95a1; }
       .status {
         margin-top: 10px;
-        padding: 11px 13px;
+        padding: 10px 13px;
         border-radius: 11px;
         border: 1px solid var(--line);
         background: #0c162f;
-        color: var(--sub);
         box-shadow: inset 0 1px 0 #ffffff0a;
+      }
+      .status-main {
+        color: #dbe6f7;
+        font-size: 13.5px;
+        font-weight: 600;
+        line-height: 1.35;
+      }
+      .status-meta {
+        margin-top: 4px;
+        font-size: 11.5px;
+        color: #9eb0c6;
       }
       .status.status-ok { border-color: #2a7f5c; background: #102b21; color: #7deab5; }
       .status.status-warn { border-color: #8b6a2f; background: #30250f; color: #ffd28a; }
@@ -544,6 +558,7 @@ class handler(BaseHTTPRequestHandler):
         .control.token, .control.refresh, .control.action { grid-column: span 1; }
         .stats { grid-template-columns: 1fr 1fr; }
         .title-row { flex-direction: column; align-items: flex-start; }
+        th, td { font-size: 13px; }
       }
       @media (max-width: 980px) {
         .tv-wrap { height: 360px; }
@@ -594,7 +609,10 @@ class handler(BaseHTTPRequestHandler):
             <button id="refreshBtn">Refresh Now</button>
           </div>
         </div>
-        <div class="status" id="status">Ready. Waiting for backend snapshot.</div>
+        <div class="status" id="status">
+          <div class="status-main" id="statusMain">Ready. Waiting for backend snapshot.</div>
+          <div class="status-meta" id="statusMeta">Dashboard is online.</div>
+        </div>
       </div>
 
       <div class="stats">
@@ -674,6 +692,8 @@ class handler(BaseHTTPRequestHandler):
     <script>
       const $ = (id) => document.getElementById(id);
       const statusEl = $("status");
+      const statusMainEl = $("statusMain");
+      const statusMetaEl = $("statusMeta");
       const tokenInput = $("token");
       let timer = null;
       let tradingViewScriptPromise = null;
@@ -715,7 +735,12 @@ class handler(BaseHTTPRequestHandler):
 
       function setStatus(message, tone = "info") {
         statusEl.className = "status status-" + tone;
-        statusEl.textContent = message;
+        statusMainEl.textContent = message;
+      }
+
+      function setStatusMeta(message) {
+        if (!statusMetaEl) return;
+        statusMetaEl.textContent = message || "";
       }
 
       function fmtPrice(v) {
@@ -1022,11 +1047,13 @@ class handler(BaseHTTPRequestHandler):
         const url = "/api/status";
 
         setStatus("Refreshing monitoring data...", "info");
+        setStatusMeta("Fetching latest backend snapshot...");
         try {
           const res = await fetch(url, { method: "GET", headers: getAuthHeaders() });
           const data = await res.json();
           if (!res.ok || !data.ok) {
             setStatus("Status fetch failed: " + (data.error || ("HTTP " + res.status)), "err");
+            setStatusMeta("Check token/auth and backend endpoint health.");
             return;
           }
           lastSnapshot = data;
@@ -1048,6 +1075,7 @@ class handler(BaseHTTPRequestHandler):
             setPlaceholderRow($("execRows"), 5, "No execution events yet.");
             renderTradingViewChart({}, []);
             setStatus("No backend snapshot yet. Run /api/scan (cron/manual) first.", "warn");
+            setStatusMeta("Waiting for first successful backend scan.");
             return;
           }
           $("m_scanned").textContent = text(data.summary?.scanned);
@@ -1092,13 +1120,17 @@ class handler(BaseHTTPRequestHandler):
           renderExecutionRows(execFeed);
           renderTradingViewChart(data || {}, execFeed || []);
             setStatus(
-              "Backend last scan: " + text(data.time) +
-              " | state: " + text(data.state_file) +
-              " | backend: " + text(data.state_backend || data.status_backend || "file"),
+              "Snapshot synced successfully",
               "ok"
+            );
+            setStatusMeta(
+              "Last scan " + text(data.time) +
+              " • backend " + text(data.state_backend || data.status_backend || "file") +
+              " • state " + text(data.state_file)
             );
         } catch (e) {
           setStatus("Network error: " + e, "err");
+          setStatusMeta("Unable to reach /api/status. Verify network or Vercel runtime.");
         }
       }
 

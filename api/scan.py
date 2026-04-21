@@ -131,6 +131,20 @@ def resolve_scan_lock_ttl_seconds() -> int:
     return min(max(ttl, 30), 900)
 
 
+def bobyt_favicon_svg() -> str:
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+        '<stop offset="0%" stop-color="#ffbf2f"/>'
+        '<stop offset="100%" stop-color="#f09512"/>'
+        "</linearGradient></defs>"
+        '<rect width="64" height="64" rx="14" fill="#111319"/>'
+        '<rect x="6" y="6" width="52" height="52" rx="12" fill="none" stroke="#2e3642" stroke-width="2"/>'
+        '<path d="M22 15h14.5c7.2 0 11.5 3.8 11.5 9.7 0 4.1-2.1 7.1-6 8.4 4.8 1.2 7.4 4.5 7.4 9.1 0 6.3-5 10.8-12.4 10.8H22V15zm13 14.8c3.4 0 5.4-1.6 5.4-4.3 0-2.6-1.8-4.1-5-4.1h-5.9v8.4H35zm1.4 16.8c3.7 0 5.9-1.8 5.9-4.9 0-3-2.2-4.8-6.2-4.8h-6.6v9.7h6.9z" fill="url(#g)"/>'
+        "</svg>"
+    )
+
+
 def extract_open_symbols(cycle: Dict[str, Any]) -> List[str]:
     live_positions = cycle.get("live_open_positions", {})
     if isinstance(live_positions, dict) and live_positions:
@@ -214,6 +228,7 @@ class handler(BaseHTTPRequestHandler):
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Bobyt Trading Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
       :root {
@@ -950,6 +965,11 @@ class handler(BaseHTTPRequestHandler):
 </html>""",
                 status_code=200,
             )
+            return
+
+        if path == "/favicon.svg":
+            self._set_headers(status_code=200, content_type="image/svg+xml")
+            self.wfile.write(bobyt_favicon_svg().encode("utf-8"))
             return
 
         if path not in {"/api", "/api/scan", "/api/status"}:

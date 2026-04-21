@@ -99,6 +99,8 @@ def main() -> int:
     exec_cfg = config.get("execution", {})
     mode = str(exec_cfg.get("mode", "paper")).lower()
     runtime_mode = str(runtime_config.get("execution", {}).get("mode", "paper")).lower()
+    env_mode_raw = str(os.getenv("TRADING_BOT_EXECUTION_MODE", "")).strip().lower()
+    effective_runtime_mode = env_mode_raw if env_mode_raw in {"paper", "live"} else runtime_mode
     runtime_exchange_cfg = runtime_config.get("exchange", {})
     runtime_category = str(runtime_exchange_cfg.get("category", "linear")).lower()
     runtime_assume_filled = bool(runtime_config.get("execution", {}).get("assume_filled_on_submit", False))
@@ -193,7 +195,7 @@ def main() -> int:
                 "State backend is file-based on Vercel. Consider PostgreSQL (Neon) to avoid state loss on cold starts."
             )
 
-    if mode == "live":
+    if effective_runtime_mode == "live":
         check(
             is_set_env("BYBIT_API_KEY"),
             "BYBIT_API_KEY is set.",
@@ -239,12 +241,12 @@ def main() -> int:
                 failures,
                 passes,
             )
-            if runtime_mode != "live":
+            if effective_runtime_mode != "live":
                 failures.append(
-                    f"Runtime mode resolves to '{runtime_mode}' on Vercel; expected 'live'."
+                    f"Runtime mode resolves to '{effective_runtime_mode}' on Vercel; expected 'live'."
                 )
 
-    if runtime_mode == "live":
+    if effective_runtime_mode == "live":
         risk_cfg = runtime_config.get("risk", {})
         max_notional = float(risk_cfg.get("max_position_notional_usdt", 0.0))
         if max_notional > 100:
@@ -275,7 +277,7 @@ def main() -> int:
     print("=== Deployment Preflight ===")
     print(f"Config: {config_path.relative_to(ROOT_DIR)}")
     print(f"Target: {args.target} | Scheduler: {args.scheduler}")
-    print(f"Mode: config={mode} runtime={runtime_mode}")
+    print(f"Mode: config={mode} runtime={runtime_mode} effective={effective_runtime_mode}")
     print(f"State backend: {storage_backend}")
     print()
 

@@ -51,7 +51,7 @@
   },
   "risk": {
     "open_on_buy_signal": true,
-    "account_equity_usdt": 100,
+    "account_equity_usdt": 300,
     "risk_per_trade_pct": 1.2,
     "max_position_notional_usdt": 100,
     "compounding": {

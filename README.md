@@ -178,7 +178,8 @@ Only if you intentionally disable that protection should you set:
 |---|---|
 | `TRADING_BOT_REQUIRE_SCAN_AUTH=true` | Protect `/api/scan` and `/api/status` |
 | `TRADING_BOT_SCAN_TOKEN=<secret>` | `/api/scan` execution token (`Authorization: Bearer <token>`) |
-| `TRADING_BOT_STATUS_TOKEN=<secret>` | Read-only token for `/api/status`; keep different from `TRADING_BOT_SCAN_TOKEN` |
+| `TRADING_BOT_STATUS_TOKEN=<secret>` | Required read-only token for `/api/status`; must be different from `TRADING_BOT_SCAN_TOKEN` |
+| `TRADING_BOT_ALLOWED_ORIGIN=<https://your-dashboard-domain>` | Optional CORS allow-origin for cross-origin dashboards (leave empty for same-origin only) |
 | `TRADING_BOT_ALLOW_LIVE_ON_VERCEL` | `true` only if you intentionally allow live orders on Vercel |
 | `TRADING_BOT_SCAN_LOCK_TTL_SECONDS=180` | Overlap lock TTL for `/api/scan` (prevents cron+manual double-run) |
 

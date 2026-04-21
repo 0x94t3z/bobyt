@@ -170,7 +170,10 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        allowed_origin = str(os.getenv("TRADING_BOT_ALLOWED_ORIGIN", "")).strip()
+        if allowed_origin:
+            self.send_header("Access-Control-Allow-Origin", allowed_origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
         self.end_headers()
@@ -192,8 +195,7 @@ class handler(BaseHTTPRequestHandler):
         status_secret = str(os.getenv("TRADING_BOT_STATUS_TOKEN", "")).strip()
 
         if path == "/api/status":
-            secret = status_secret or scan_secret
-            return secret, "TRADING_BOT_STATUS_TOKEN (or TRADING_BOT_SCAN_TOKEN / CRON_SECRET)"
+            return status_secret, "TRADING_BOT_STATUS_TOKEN"
 
         return scan_secret, "TRADING_BOT_SCAN_TOKEN (or CRON_SECRET)"
 

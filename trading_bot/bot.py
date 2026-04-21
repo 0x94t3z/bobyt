@@ -3017,6 +3017,8 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                     )
                             elif pnl > 0:
                                 risk_state["consecutive_losses"] = 0
+                            else:
+                                risk_state["consecutive_losses"] = 0
 
                             source_note = (
                                 str(exit_fill.get("source", "recent_sell_execution"))
@@ -3497,6 +3499,8 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                             f"Loss cooldown ({cooldown_minutes}m) after {symbol}"
                                         )
                                 elif pnl > 0:
+                                    risk_state["consecutive_losses"] = 0
+                                else:
                                     risk_state["consecutive_losses"] = 0
                                 price_source = (
                                     str(exit_fill.get("source", "exchange_execution"))

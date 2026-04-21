@@ -165,16 +165,20 @@ def main() -> int:
         scan_token = str(
             os.getenv("TRADING_BOT_SCAN_TOKEN", "") or os.getenv("CRON_SECRET", "")
         ).strip()
-        if not status_token:
-            warnings.append(
-                "TRADING_BOT_STATUS_TOKEN is not set. /api/status will use scan token; "
-                "set a separate status token for least-privilege dashboard access."
-            )
-        elif scan_token and status_token == scan_token:
-            warnings.append(
-                "TRADING_BOT_STATUS_TOKEN matches scan token. Use different tokens "
-                "for read-only status and scan execution."
-            )
+        check(
+            bool(status_token),
+            "Status auth secret is configured.",
+            "Set TRADING_BOT_STATUS_TOKEN. /api/status requires a dedicated token.",
+            failures,
+            passes,
+        )
+        check(
+            not (scan_token and status_token and scan_token == status_token),
+            "Status token is different from scan token.",
+            "TRADING_BOT_STATUS_TOKEN must be different from TRADING_BOT_SCAN_TOKEN/CRON_SECRET.",
+            failures,
+            passes,
+        )
         if storage_backend == "postgres":
             check(
                 bool(get_database_url()),

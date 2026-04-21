@@ -20,7 +20,7 @@
   "spot_discovery": {
     "enabled": true,
     "add_count": 8,
-    "min_turnover_usdt": 2000000,
+    "min_turnover_usdt": 1500000,
     "min_price_change_pct": 0.01,
     "fallback_to_best": true,
     "exclude_symbols": []
@@ -35,7 +35,7 @@
     "ema_fast": 3,
     "ema_slow": 8,
     "rsi_period": 14,
-    "rsi_buy_min": 52,
+    "rsi_buy_min": 50,
     "rsi_buy_max": 66,
     "rsi_sell": 88,
     "limit_pullback_pct": 0.05,
@@ -44,9 +44,9 @@
     "regime_filter": {
       "enabled": true,
       "require_uptrend": true,
-      "min_trend_pct": 0.22,
+      "min_trend_pct": 0.18,
       "require_slow_ema_rising": true,
-      "min_ema_slope_pct": 0.06
+      "min_ema_slope_pct": 0.04
     }
   },
   "risk": {
@@ -84,7 +84,7 @@
   },
   "liquidity_filter": {
     "enabled": true,
-    "max_spread_pct": 0.18,
+    "max_spread_pct": 0.2,
     "min_turnover_24h_usdt": 3000000,
     "block_when_ticker_missing": true
   },

@@ -232,31 +232,31 @@ class handler(BaseHTTPRequestHandler):
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
       :root {
-        --bg: #111319;
-        --panel: #181d25d9;
-        --panel-solid: #1d232d;
-        --line: #2e3642;
-        --line-soft: #262d38;
-        --txt: #eef2f5;
-        --sub: #9aa6b2;
+        --bg: #090a0c;
+        --panel: #101317e8;
+        --panel-solid: #13171c;
+        --line: #252b33;
+        --line-soft: #1d232b;
+        --txt: #f1f3f5;
+        --sub: #939ca8;
         --ok: #20c997;
         --warn: #f7a600;
         --err: #ff5b6e;
         --accent: #f7a600;
-        --bg-blob-1: #3c331e66;
-        --bg-blob-2: #232a3650;
-        --hero-start: #20262fcc;
-        --hero-end: #171c25cc;
-        --chip-border: #3a444f;
-        --chip-bg: #1b212b;
+        --bg-blob-1: #3f311d52;
+        --bg-blob-2: #211a1348;
+        --hero-start: #171b21cc;
+        --hero-end: #0f1217cc;
+        --chip-border: #353b43;
+        --chip-bg: #181c21;
         --chip-text: #f7a600;
-        --input-bg: #131922;
+        --input-bg: #0e1217;
         --button-start: #ffbf2f;
         --button-end: #f09512;
-        --th-text: #b8c0cb;
-        --th-bg: #1a2029;
-        --row-alt: #171d27ba;
-        --grid-line: #2e3642;
+        --th-text: #bec6d1;
+        --th-bg: #141920;
+        --row-alt: #11161dbd;
+        --grid-line: #252b33;
         --soft-glow: #96aeff26;
       }
       * { box-sizing: border-box; }
@@ -311,7 +311,7 @@ class handler(BaseHTTPRequestHandler):
         overflow: hidden;
         background:
           radial-gradient(180px 140px at 86% 18%, #ffc74d2a 0%, transparent 78%),
-          linear-gradient(145deg, #2f2618 0%, #1c1f26 44%, #121821 100%);
+          linear-gradient(145deg, #2f2618 0%, #1b1d21 44%, #0f1115 100%);
         min-height: 182px;
         padding: 16px 18px 14px 18px;
         box-shadow: inset 0 1px 0 #ffe8b940, 0 14px 32px #00000066;
@@ -443,7 +443,7 @@ class handler(BaseHTTPRequestHandler):
         padding: 12px;
         border: 1px solid var(--line-soft);
         border-radius: 14px;
-        background: #141920cc;
+        background: #101419d4;
       }
       .control {
         display: flex;
@@ -473,7 +473,7 @@ class handler(BaseHTTPRequestHandler):
       input:focus, select:focus {
         outline: none;
         border-color: var(--accent);
-        box-shadow: 0 0 0 3px #6d8dff2b;
+        box-shadow: 0 0 0 3px #f7a6002b;
       }
       button {
         cursor: pointer;
@@ -519,10 +519,10 @@ class handler(BaseHTTPRequestHandler):
       .tv-meta {
         padding: 11px 14px;
         border-bottom: 1px solid var(--line-soft);
-        color: #c5cfdb;
+        color: #c7ced7;
         font-size: 12.5px;
         letter-spacing: 0.03em;
-        background: #151b24;
+        background: #11161c;
       }
       .tv-wrap {
         height: 420px;
@@ -551,7 +551,7 @@ class handler(BaseHTTPRequestHandler):
         line-height: 1.35;
         vertical-align: top;
       }
-      td { color: #dbe3ee; }
+      td { color: #dce2ea; }
       th {
         color: var(--th-text);
         font-weight: 700;
@@ -561,7 +561,7 @@ class handler(BaseHTTPRequestHandler):
         background: var(--th-bg);
       }
       tr:nth-child(even) td { background: var(--row-alt); }
-      tbody tr:hover td { background: #1d2634; }
+      tbody tr:hover td { background: #181d25; }
       .ok { color: var(--ok); }
       .warn { color: var(--warn); }
       .err { color: var(--err); }
@@ -574,7 +574,7 @@ class handler(BaseHTTPRequestHandler):
         font-size: 11px;
         letter-spacing: 0.03em;
         padding: 3px 8px;
-        background: #0a1630;
+        background: #11161d;
       }
       .badge.ok { border-color: #2a7f5c; background: #123425; color: #6ce7ae; }
       .badge.warn { border-color: #8b6a2f; background: #35280f; color: #ffd28a; }
@@ -584,11 +584,11 @@ class handler(BaseHTTPRequestHandler):
         padding: 10px 13px;
         border-radius: 11px;
         border: 1px solid var(--line);
-        background: #0c162f;
+        background: #10161c;
         box-shadow: inset 0 1px 0 #ffffff0a;
       }
       .status-main {
-        color: #dbe6f7;
+        color: #dce5f0;
         font-size: 13.5px;
         font-weight: 600;
         line-height: 1.35;
@@ -596,12 +596,12 @@ class handler(BaseHTTPRequestHandler):
       .status-meta {
         margin-top: 4px;
         font-size: 11.5px;
-        color: #9eb0c6;
+        color: #9aa7b8;
       }
       .status.status-ok { border-color: #2a7f5c; background: #102b21; color: #7deab5; }
       .status.status-warn { border-color: #8b6a2f; background: #30250f; color: #ffd28a; }
       .status.status-err { border-color: #8b3a45; background: #32161a; color: #ff9ba7; }
-      .status.status-info { border-color: var(--line); background: #0c162f; color: var(--sub); }
+      .status.status-info { border-color: var(--line); background: #10161c; color: var(--sub); }
       @media (max-width: 1200px) {
         .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
         .control.token { grid-column: span 7; }
@@ -611,7 +611,20 @@ class handler(BaseHTTPRequestHandler):
       @media (max-width: 900px) {
         h1 { font-size: 30px; }
         .portfolio-card { min-height: 200px; padding: 14px; }
-        .cc-number { font-size: 17px; }
+        .portfolio-main { padding-right: 56px; }
+        .cc-number { font-size: 15px; letter-spacing: 0.13em; }
+        .portfolio-user { font-size: 16px; }
+        .portfolio-grid { grid-template-columns: 1fr; gap: 8px; }
+        .portfolio-item .v { font-size: 20px; }
+        .portfolio-brand { display: none; }
+        .portfolio-coin-mark {
+          top: 14px;
+          right: 14px;
+          bottom: auto;
+          width: 34px;
+          height: 34px;
+          font-size: 16px;
+        }
         .controls { grid-template-columns: 1fr; padding: 10px; }
         .control.token, .control.refresh, .control.action { grid-column: span 1; }
         .stats { grid-template-columns: 1fr 1fr; }

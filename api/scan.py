@@ -215,125 +215,44 @@ class handler(BaseHTTPRequestHandler):
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Bobyt Trading Dashboard</title>
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
       :root {
-        --bg: #060c1c;
-        --panel: #0d1730cc;
-        --panel-solid: #0f1b37;
-        --line: #283d67;
-        --line-soft: #213152;
-        --txt: #eaf0ff;
-        --sub: #9cb0d8;
-        --ok: #39d98a;
-        --warn: #ffc368;
-        --err: #ff7a87;
-        --accent: #6d8dff;
-        --bg-blob-1: #294f9f66;
-        --bg-blob-2: #2f2f7a44;
-        --hero-start: #0f1d3fcc;
-        --hero-end: #0d1832cc;
-        --chip-border: #4666a0;
-        --chip-bg: #142347;
-        --chip-text: #c7d7ff;
-        --input-bg: #0a152c;
-        --button-start: #ff7c74;
-        --button-end: #f15653;
-        --th-text: #acc0eb;
-        --th-bg: #0e1934;
-        --row-alt: #0d1830a8;
-        --grid-line: #1d2a47;
+        --bg: #111319;
+        --panel: #181d25d9;
+        --panel-solid: #1d232d;
+        --line: #2e3642;
+        --line-soft: #262d38;
+        --txt: #eef2f5;
+        --sub: #9aa6b2;
+        --ok: #20c997;
+        --warn: #f7a600;
+        --err: #ff5b6e;
+        --accent: #f7a600;
+        --bg-blob-1: #3c331e66;
+        --bg-blob-2: #232a3650;
+        --hero-start: #20262fcc;
+        --hero-end: #171c25cc;
+        --chip-border: #3a444f;
+        --chip-bg: #1b212b;
+        --chip-text: #f7a600;
+        --input-bg: #131922;
+        --button-start: #ffbf2f;
+        --button-end: #f09512;
+        --th-text: #b8c0cb;
+        --th-bg: #1a2029;
+        --row-alt: #171d27ba;
+        --grid-line: #2e3642;
         --soft-glow: #96aeff26;
       }
       * { box-sizing: border-box; }
       body {
-        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        font-family: "Inter", "Segoe UI", sans-serif;
         background:
           radial-gradient(900px 500px at 5% -10%, var(--bg-blob-1) 0%, transparent 62%),
           radial-gradient(750px 450px at 95% 0%, var(--bg-blob-2) 0%, transparent 58%),
           var(--bg);
         color: var(--txt);
         margin: 0;
-      }
-      body[data-theme="ocean"] {
-        --bg: #04161f;
-        --panel: #0a2530cc;
-        --panel-solid: #0d2a36;
-        --line: #2f5d66;
-        --line-soft: #264a52;
-        --txt: #e7fbff;
-        --sub: #9bd2dc;
-        --ok: #3be49d;
-        --warn: #ffc96a;
-        --err: #ff818f;
-        --accent: #38bdf8;
-        --bg-blob-1: #0b8bc366;
-        --bg-blob-2: #114d7f55;
-        --hero-start: #0e2a33cc;
-        --hero-end: #0a1f2dcc;
-        --chip-border: #2f7683;
-        --chip-bg: #123742;
-        --chip-text: #b8e6ef;
-        --input-bg: #0a202d;
-        --button-start: #28b4d4;
-        --button-end: #1f92cb;
-        --th-text: #b2e2eb;
-        --th-bg: #102c34;
-        --row-alt: #0f2a33b0;
-        --grid-line: #264a52;
-      }
-      body[data-theme="graphite"] {
-        --bg: #0b0f17;
-        --panel: #131927cc;
-        --panel-solid: #181f30;
-        --line: #3a4357;
-        --line-soft: #303a4f;
-        --txt: #eef2ff;
-        --sub: #aeb7cc;
-        --ok: #5ad79f;
-        --warn: #f8c46b;
-        --err: #ff8b98;
-        --accent: #8b9dbf;
-        --bg-blob-1: #5d6a8a40;
-        --bg-blob-2: #3f4c6840;
-        --hero-start: #1a2234cc;
-        --hero-end: #151c2bcc;
-        --chip-border: #596583;
-        --chip-bg: #242d40;
-        --chip-text: #d0d8ef;
-        --input-bg: #141b29;
-        --button-start: #f48e6a;
-        --button-end: #e56d59;
-        --th-text: #c0c9dc;
-        --th-bg: #1a2233;
-        --row-alt: #182032b5;
-        --grid-line: #303a4f;
-      }
-      body[data-theme="sunset"] {
-        --bg: #1a0f16;
-        --panel: #2a1725cc;
-        --panel-solid: #341d2bcc;
-        --line: #6a3657;
-        --line-soft: #522b45;
-        --txt: #fff1f7;
-        --sub: #e7bfd3;
-        --ok: #5fe29f;
-        --warn: #ffc873;
-        --err: #ff8da8;
-        --accent: #ff8ccf;
-        --bg-blob-1: #9a3b6f55;
-        --bg-blob-2: #68317944;
-        --hero-start: #3a1f33cc;
-        --hero-end: #2d1828cc;
-        --chip-border: #965179;
-        --chip-bg: #47253d;
-        --chip-text: #ffd8e9;
-        --input-bg: #2a1726;
-        --button-start: #ff8d6f;
-        --button-end: #ff5e79;
-        --th-text: #f2c9dc;
-        --th-bg: #371f30;
-        --row-alt: #3a2232a8;
-        --grid-line: #522b45;
       }
       .wrap { max-width: 1420px; margin: 22px auto 34px auto; padding: 0 18px; }
       .hero {
@@ -342,7 +261,7 @@ class handler(BaseHTTPRequestHandler):
         border-radius: 18px;
         padding: 22px;
         margin-bottom: 12px;
-        box-shadow: 0 18px 45px #03091699, inset 0 1px 0 #ffffff0d;
+        box-shadow: 0 20px 50px #02050b99, inset 0 1px 0 #ffffff0d;
         backdrop-filter: blur(6px);
       }
       .title-row {
@@ -377,16 +296,15 @@ class handler(BaseHTTPRequestHandler):
         padding: 12px;
         border: 1px solid var(--line-soft);
         border-radius: 14px;
-        background: #0a142bcc;
+        background: #141920cc;
       }
       .control {
         display: flex;
         flex-direction: column;
         gap: 6px;
       }
-      .control.token { grid-column: span 5; }
+      .control.token { grid-column: span 7; }
       .control.refresh { grid-column: span 2; }
-      .control.theme { grid-column: span 2; }
       .control.action { grid-column: span 3; justify-content: flex-end; }
       .control label {
         color: var(--sub);
@@ -421,19 +339,20 @@ class handler(BaseHTTPRequestHandler):
       .control.action button { width: 100%; }
       .stats {
         display: grid;
-        grid-template-columns: repeat(7, minmax(0, 1fr));
+        grid-template-columns: repeat(8, minmax(0, 1fr));
         gap: 10px;
         margin-top: 12px;
       }
       .stat {
         border: 1px solid var(--line);
-        background: linear-gradient(180deg, #ffffff08 0%, #00000000 35%), var(--panel-solid);
+        background: linear-gradient(180deg, #ffffff06 0%, #00000000 32%), var(--panel-solid);
         border-radius: 13px;
         padding: 12px 13px;
         box-shadow: inset 0 1px 0 #ffffff0d;
       }
       .k { color: var(--sub); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
       .v { font-size: 30px; font-weight: 700; margin-top: 6px; line-height: 1.03; letter-spacing: -0.02em; }
+      .s { margin-top: 4px; font-size: 11px; letter-spacing: 0.02em; }
       .box {
         margin-top: 14px;
         border: 1px solid var(--line);
@@ -479,7 +398,7 @@ class handler(BaseHTTPRequestHandler):
       th, td {
         text-align: left;
         padding: 10px 12px;
-        border-bottom: 1px solid #1c2b48;
+        border-bottom: 1px solid var(--grid-line);
         font-size: 13px;
         vertical-align: top;
       }
@@ -524,15 +443,14 @@ class handler(BaseHTTPRequestHandler):
       .status.status-info { border-color: var(--line); background: #0c162f; color: var(--sub); }
       @media (max-width: 1200px) {
         .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-        .control.token { grid-column: span 6; }
+        .control.token { grid-column: span 7; }
         .control.refresh { grid-column: span 2; }
-        .control.theme { grid-column: span 2; }
-        .control.action { grid-column: span 2; }
+        .control.action { grid-column: span 3; }
       }
       @media (max-width: 900px) {
         h1 { font-size: 30px; }
         .controls { grid-template-columns: 1fr; padding: 10px; }
-        .control.token, .control.refresh, .control.theme, .control.action { grid-column: span 1; }
+        .control.token, .control.refresh, .control.action { grid-column: span 1; }
         .stats { grid-template-columns: 1fr 1fr; }
         .title-row { flex-direction: column; align-items: flex-start; }
       }
@@ -560,15 +478,6 @@ class handler(BaseHTTPRequestHandler):
             <label for="refresh">Refresh (s)</label>
             <input id="refresh" type="number" min="15" value="60" title="Auto-refresh interval in seconds" />
           </div>
-          <div class="control theme">
-            <label for="theme">Theme</label>
-            <select id="theme" title="Dashboard color theme">
-              <option value="midnight">Midnight</option>
-              <option value="ocean">Ocean</option>
-              <option value="graphite">Graphite</option>
-              <option value="sunset">Sunset</option>
-            </select>
-          </div>
           <div class="control action">
             <label for="refreshBtn">Action</label>
             <button id="refreshBtn">Refresh Now</button>
@@ -585,6 +494,11 @@ class handler(BaseHTTPRequestHandler):
         <div class="stat"><div class="k">Pending Entries</div><div class="v warn" id="m_pending">-</div></div>
         <div class="stat"><div class="k">Errors</div><div class="v err" id="m_err">-</div></div>
         <div class="stat"><div class="k">Execution</div><div class="v" id="m_exec">-</div></div>
+        <div class="stat">
+          <div class="k">USDT Available</div>
+          <div class="v ok" id="m_usdt">-</div>
+          <div class="s muted" id="m_usdt_note">-</div>
+        </div>
       </div>
 
       <div class="box tv-box">
@@ -650,7 +564,6 @@ class handler(BaseHTTPRequestHandler):
       const $ = (id) => document.getElementById(id);
       const statusEl = $("status");
       const tokenInput = $("token");
-      const themeSelect = $("theme");
       let timer = null;
       let tradingViewScriptPromise = null;
       let tradingViewWidget = null;
@@ -715,15 +628,8 @@ class handler(BaseHTTPRequestHandler):
         return "-";
       }
 
-      function applyTheme(themeName) {
-        const normalized = ["midnight", "ocean", "graphite", "sunset"].includes(themeName) ? themeName : "midnight";
-        if (normalized === "midnight") {
-          document.body.removeAttribute("data-theme");
-        } else {
-          document.body.setAttribute("data-theme", normalized);
-        }
-        if (themeSelect && themeSelect.value !== normalized) themeSelect.value = normalized;
-        try { localStorage.setItem("bobyt_dashboard_theme", normalized); } catch (e) {}
+      function applyTheme() {
+        document.body.setAttribute("data-theme", "bybit");
       }
 
       function toggleTradingViewFallback(showFallback, message = "") {
@@ -854,6 +760,12 @@ class handler(BaseHTTPRequestHandler):
         return num(v).toFixed(2);
       }
 
+      function shortErr(v) {
+        const s = String(v || "");
+        if (!s) return "";
+        return s.length > 58 ? (s.slice(0, 55) + "...") : s;
+      }
+
       function fmtPf(v) {
         const txt = String(v ?? "").trim().toUpperCase();
         if (txt === "INF" || txt === "+INF" || txt === "INFINITY" || txt === "+INFINITY") return "INF";
@@ -969,6 +881,8 @@ class handler(BaseHTTPRequestHandler):
             $("m_pending").textContent = "-";
             $("m_err").textContent = "-";
             $("m_exec").textContent = "-";
+            $("m_usdt").textContent = "-";
+            $("m_usdt_note").textContent = "-";
             setPlaceholderRow($("perfRows"), 7, "No performance data yet.");
             setPlaceholderRow($("rows"), 8, "No backend snapshot yet. Trigger /api/scan from cron first.");
             setPlaceholderRow($("execRows"), 5, "No execution events yet.");
@@ -983,6 +897,22 @@ class handler(BaseHTTPRequestHandler):
           $("m_pending").textContent = text(data.positions?.pending_entry_count);
           $("m_err").textContent = text(data.summary?.errors);
           $("m_exec").textContent = text((data.execution_mode || "").toUpperCase());
+          const bal = data.account_balance || {};
+          if (!bal.supported) {
+            $("m_usdt").textContent = "N/A";
+            $("m_usdt_note").textContent = "Exchange not supported";
+          } else if (!bal.configured) {
+            $("m_usdt").textContent = "API OFF";
+            $("m_usdt_note").textContent = "Set BYBIT_API_KEY/SECRET";
+          } else if (!bal.fetched) {
+            $("m_usdt").textContent = "ERR";
+            $("m_usdt_note").textContent = shortErr(bal.error) || "Unable to read wallet";
+          } else {
+            const available = num(bal.usdt_available, num(bal.usdt_wallet, 0));
+            const wallet = num(bal.usdt_wallet, available);
+            $("m_usdt").textContent = fmtUsdt(available);
+            $("m_usdt_note").textContent = "wallet " + fmtUsdt(wallet);
+          }
 
           renderPerformanceRows(data.performance || {});
           renderTopRows(data.top_results || []);
@@ -1009,23 +939,7 @@ class handler(BaseHTTPRequestHandler):
         timer = setInterval(fetchStatus, sec * 1000);
       }
 
-      if (themeSelect) {
-        let savedTheme = "midnight";
-        try { savedTheme = localStorage.getItem("bobyt_dashboard_theme") || "midnight"; } catch (e) {}
-        applyTheme(savedTheme);
-        themeSelect.addEventListener("change", () => {
-          applyTheme(themeSelect.value);
-          if (lastSnapshot) {
-            const execFeed =
-              (Array.isArray(lastSnapshot.execution_events) && lastSnapshot.execution_events.length > 0)
-                ? lastSnapshot.execution_events
-                : (lastSnapshot.execution_events_history || []);
-            renderTradingViewChart(lastSnapshot, execFeed || []);
-          }
-        });
-      } else {
-        applyTheme("midnight");
-      }
+      applyTheme();
 
       $("refreshBtn").addEventListener("click", fetchStatus);
       $("refresh").addEventListener("change", applyAutoRefresh);
@@ -1200,6 +1114,7 @@ class handler(BaseHTTPRequestHandler):
                 "risk_state": cycle.get("risk_state", {}),
                 "risk_limits": cycle.get("risk_limits", {}),
                 "performance": cycle.get("performance", {}),
+                "account_balance": cycle.get("account_balance", {}),
             }
 
             if not monitor_only:

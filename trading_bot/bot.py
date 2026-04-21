@@ -2545,6 +2545,19 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     live_synced_pending_entries: Dict[str, Dict[str, Any]] = {}
     live_sync_errors: Dict[str, str] = {}
     live_equity_override_usdt: Optional[float] = None
+    prefetched_spot_coin_balances: Dict[str, Dict[str, float]] = {}
+    prefetched_spot_coin_balances_error = ""
+    account_balance_summary: Dict[str, Any] = {
+        "supported": exchange_name == "bybit",
+        "configured": False,
+        "fetched": False,
+        "source": "",
+        "equity_usdt": 0.0,
+        "usdt_wallet": 0.0,
+        "usdt_available": 0.0,
+        "updated_at": now_utc_str(),
+        "error": "",
+    }
 
     symbol_jobs: List[Dict[str, str]] = []
     seen_symbols = set()
@@ -2589,6 +2602,9 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
 
     if exchange_name == "bybit":
         base_urls = get_bybit_base_urls(exchange_cfg)
+        api_key = str(exec_ctx.get("api_key", ""))
+        api_secret = str(exec_ctx.get("api_secret", ""))
+        recv_window = int(exec_ctx.get("recv_window", 5000))
         for job in symbol_jobs:
             symbol = job["symbol"]
             category = normalize_bybit_category(job["category"] or default_bybit_category, fallback="")
@@ -2606,12 +2622,13 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
             except Exception as e:
                 cycle_errors.append(f"[INSTRUMENT:{symbol}] Error: {e}")
 
-        # Live compounding prefers real wallet equity to reduce drift from ephemeral state.
-        if str(exec_ctx.get("mode", "paper")).lower() == "live":
-            api_key = str(exec_ctx.get("api_key", ""))
-            api_secret = str(exec_ctx.get("api_secret", ""))
-            recv_window = int(exec_ctx.get("recv_window", 5000))
-            if api_key and api_secret:
+        exec_mode = str(exec_ctx.get("mode", "paper")).lower()
+        if api_key and api_secret:
+            account_balance_summary["configured"] = True
+            display_equity_usdt = 0.0
+
+            # Live compounding prefers real wallet equity to reduce drift from ephemeral state.
+            if exec_mode == "live":
                 try:
                     live_equity_override_usdt = fetch_bybit_live_equity_usdt(
                         base_urls=base_urls,
@@ -2619,8 +2636,55 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                         api_secret=api_secret,
                         recv_window=recv_window,
                     )
+                    display_equity_usdt = max(0.0, to_float(live_equity_override_usdt, 0.0))
                 except Exception as e:
+                    account_balance_summary["error"] = str(e)
                     cycle_errors.append(f"[LIVE_EQUITY] Warning: {e}")
+            else:
+                # In paper mode: fetch equity only for monitoring visibility (do not affect sizing).
+                try:
+                    display_equity_usdt = fetch_bybit_live_equity_usdt(
+                        base_urls=base_urls,
+                        api_key=api_key,
+                        api_secret=api_secret,
+                        recv_window=recv_window,
+                    )
+                except Exception as e:
+                    account_balance_summary["error"] = str(e)
+
+            if display_equity_usdt > 0:
+                account_balance_summary["equity_usdt"] = display_equity_usdt
+                account_balance_summary["fetched"] = True
+                account_balance_summary["source"] = "wallet_equity"
+
+            try:
+                prefetched_spot_coin_balances = fetch_bybit_wallet_coin_balances(
+                    base_urls=base_urls,
+                    api_key=api_key,
+                    api_secret=api_secret,
+                    recv_window=recv_window,
+                )
+                usdt_row = prefetched_spot_coin_balances.get("USDT", {})
+                usdt_wallet = max(0.0, to_float(usdt_row.get("wallet"), 0.0))
+                usdt_available = max(
+                    0.0,
+                    to_float(
+                        usdt_row.get("available"),
+                        to_float(usdt_row.get("free"), usdt_wallet),
+                    ),
+                )
+                account_balance_summary["usdt_wallet"] = usdt_wallet
+                account_balance_summary["usdt_available"] = usdt_available
+                account_balance_summary["fetched"] = True
+                account_balance_summary["source"] = (
+                    "wallet_equity+coins"
+                    if account_balance_summary.get("equity_usdt", 0.0) > 0
+                    else "wallet_coins"
+                )
+            except Exception as e:
+                prefetched_spot_coin_balances_error = str(e)
+                if not account_balance_summary.get("error"):
+                    account_balance_summary["error"] = prefetched_spot_coin_balances_error
 
     update_circuit_breaker_status(
         config=config,
@@ -2645,17 +2709,24 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                 normalize_bybit_category(job.get("category", ""), fallback=default_bybit_category) == "spot"
                 for job in symbol_jobs
             ):
-                try:
-                    spot_coin_balances = fetch_bybit_wallet_coin_balances(
-                        base_urls=base_urls,
-                        api_key=api_key,
-                        api_secret=api_secret,
-                        recv_window=recv_window,
-                    )
-                except Exception as e:
+                if prefetched_spot_coin_balances:
+                    spot_coin_balances = dict(prefetched_spot_coin_balances)
+                elif prefetched_spot_coin_balances_error:
                     spot_wallet_sync_ok = False
-                    spot_wallet_sync_error = str(e)
-                    cycle_errors.append(f"[LIVE_SYNC:SPOT] Wallet error: {e}")
+                    spot_wallet_sync_error = prefetched_spot_coin_balances_error
+                    cycle_errors.append(f"[LIVE_SYNC:SPOT] Wallet error: {spot_wallet_sync_error}")
+                else:
+                    try:
+                        spot_coin_balances = fetch_bybit_wallet_coin_balances(
+                            base_urls=base_urls,
+                            api_key=api_key,
+                            api_secret=api_secret,
+                            recv_window=recv_window,
+                        )
+                    except Exception as e:
+                        spot_wallet_sync_ok = False
+                        spot_wallet_sync_error = str(e)
+                        cycle_errors.append(f"[LIVE_SYNC:SPOT] Wallet error: {e}")
 
             synced_pairs: set[str] = set()
             for job in symbol_jobs:
@@ -3509,6 +3580,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         "execution_events_history": execution_events_history[-50:],
         "performance": performance,
         "recent_closed_trades": recent_closed_trades,
+        "account_balance": account_balance_summary,
     }
 
 

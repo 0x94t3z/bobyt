@@ -305,19 +305,45 @@ class handler(BaseHTTPRequestHandler):
       }
       .portfolio-card {
         margin-top: 14px;
-        border: 1px solid #3b3224;
-        border-radius: 16px;
+        position: relative;
+        border: 1px solid #4a3a20;
+        border-radius: 18px;
         overflow: hidden;
-        background: radial-gradient(120% 130% at 5% 5%, #2a2318 0%, #171c25 45%, #111319 100%);
-        display: grid;
-        grid-template-columns: 1.2fr 1fr;
-        min-height: 148px;
+        background:
+          radial-gradient(180px 140px at 86% 18%, #ffc74d2a 0%, transparent 78%),
+          linear-gradient(145deg, #2f2618 0%, #1c1f26 44%, #121821 100%);
+        min-height: 182px;
+        padding: 16px 18px 14px 18px;
+        box-shadow: inset 0 1px 0 #ffe8b940, 0 14px 32px #00000066;
       }
       .portfolio-main {
-        padding: 14px 16px;
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 9px;
+      }
+      .cc-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .cc-brand {
+        font-size: 12px;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: #ffca68;
+        font-weight: 800;
+      }
+      .cc-badge {
+        border: 1px solid #6f5527;
+        border-radius: 999px;
+        padding: 4px 8px;
+        font-size: 10px;
+        color: #ffd894;
+        background: #2e2413;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        font-weight: 700;
       }
       .portfolio-label {
         font-size: 11px;
@@ -326,52 +352,85 @@ class handler(BaseHTTPRequestHandler):
         color: #c8b69b;
         font-weight: 700;
       }
+      .cc-chip-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .cc-chip {
+        width: 46px;
+        height: 34px;
+        border-radius: 8px;
+        background: linear-gradient(140deg, #e5c47e 0%, #b88a38 100%);
+        border: 1px solid #9d7430;
+        box-shadow: inset 0 1px 0 #fff0c8;
+      }
+      .cc-chip::before {
+        content: "";
+        display: block;
+        width: 100%;
+        height: 100%;
+        background:
+          linear-gradient(90deg, transparent 0 20%, #8f6a2f 20% 24%, transparent 24% 44%, #8f6a2f 44% 48%, transparent 48% 68%, #8f6a2f 68% 72%, transparent 72% 100%);
+        opacity: 0.45;
+        border-radius: 8px;
+      }
+      .cc-circle {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #ffbe40;
+        box-shadow: 0 0 0 6px #ffbe402a;
+      }
+      .cc-number {
+        font-size: 19px;
+        letter-spacing: 0.16em;
+        font-weight: 700;
+        color: #f6efe3;
+        margin-top: 2px;
+      }
       .portfolio-user {
-        font-size: 23px;
-        font-weight: 800;
-        letter-spacing: -0.02em;
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        color: #f8f0df;
       }
       .portfolio-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 12px;
+        gap: 10px;
+        margin-top: 2px;
       }
       .portfolio-item .k {
         font-size: 10px;
+        color: #bcae93;
       }
       .portfolio-item .v {
-        font-size: 24px;
+        font-size: 22px;
         margin-top: 3px;
       }
-      .portfolio-visual {
-        position: relative;
-        border-left: 1px solid #2f3744;
-        background:
-          radial-gradient(110px 90px at 75% 30%, #ffbf2f2e 0%, transparent 80%),
-          linear-gradient(165deg, #171d27 0%, #0f131b 100%);
-      }
-      .portfolio-coin {
+      .portfolio-coin-mark {
         position: absolute;
-        right: 28px;
-        top: 24px;
-        width: 88px;
-        height: 88px;
+        right: 18px;
+        bottom: 16px;
+        width: 42px;
+        height: 42px;
         border-radius: 50%;
-        background: linear-gradient(145deg, #ffd064 0%, #f2a51f 60%, #d8850f 100%);
+        background: linear-gradient(145deg, #ffd064 0%, #f2a51f 65%, #cf7f0e 100%);
         color: #201807;
-        font-size: 40px;
-        font-weight: 900;
+        font-size: 20px;
+        font-weight: 800;
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: inset 0 2px 0 #fff0bf, 0 14px 28px #00000080;
+        box-shadow: inset 0 2px 0 #fff0bf, 0 10px 20px #00000066;
       }
       .portfolio-brand {
         position: absolute;
-        right: 16px;
-        bottom: 12px;
-        color: #f6cc7e;
-        font-size: 11px;
+        right: 66px;
+        bottom: 28px;
+        color: #e8d4af;
+        font-size: 10px;
         letter-spacing: 0.1em;
         text-transform: uppercase;
         font-weight: 700;
@@ -551,9 +610,8 @@ class handler(BaseHTTPRequestHandler):
       }
       @media (max-width: 900px) {
         h1 { font-size: 30px; }
-        .portfolio-card { grid-template-columns: 1fr; }
-        .portfolio-visual { min-height: 96px; border-left: 0; border-top: 1px solid #2f3744; }
-        .portfolio-coin { width: 66px; height: 66px; font-size: 30px; top: 14px; }
+        .portfolio-card { min-height: 200px; padding: 14px; }
+        .cc-number { font-size: 17px; }
         .controls { grid-template-columns: 1fr; padding: 10px; }
         .control.token, .control.refresh, .control.action { grid-column: span 1; }
         .stats { grid-template-columns: 1fr 1fr; }
@@ -577,7 +635,16 @@ class handler(BaseHTTPRequestHandler):
         </div>
         <div class="portfolio-card">
           <div class="portfolio-main">
+            <div class="cc-top">
+              <div class="cc-brand">Bobyt Card</div>
+              <div class="cc-badge">Gold</div>
+            </div>
             <div class="portfolio-label">Trader Profile</div>
+            <div class="cc-chip-row">
+              <div class="cc-chip" aria-hidden="true"></div>
+              <div class="cc-circle" aria-hidden="true"></div>
+            </div>
+            <div class="cc-number">9400 •••• •••• 9421</div>
             <div class="portfolio-user" id="u_username">@0x94t3z</div>
             <div class="portfolio-grid">
               <div class="portfolio-item">
@@ -590,10 +657,8 @@ class handler(BaseHTTPRequestHandler):
               </div>
             </div>
           </div>
-          <div class="portfolio-visual">
-            <div class="portfolio-coin">B</div>
-            <div class="portfolio-brand">Bobyt Prime</div>
-          </div>
+          <div class="portfolio-coin-mark">B</div>
+          <div class="portfolio-brand">Bobyt Prime</div>
         </div>
         <div class="controls">
           <div class="control token">

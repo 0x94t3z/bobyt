@@ -228,20 +228,115 @@ class handler(BaseHTTPRequestHandler):
         --warn: #ffc368;
         --err: #ff7a87;
         --accent: #6d8dff;
+        --bg-blob-1: #294f9f66;
+        --bg-blob-2: #2f2f7a44;
+        --hero-start: #0f1d3fcc;
+        --hero-end: #0d1832cc;
+        --chip-border: #4666a0;
+        --chip-bg: #142347;
+        --chip-text: #c7d7ff;
+        --input-bg: #0a152c;
+        --button-start: #ff7c74;
+        --button-end: #f15653;
+        --th-text: #acc0eb;
+        --th-bg: #0e1934;
+        --row-alt: #0d1830a8;
+        --grid-line: #1d2a47;
       }
       * { box-sizing: border-box; }
       body {
         font-family: "Space Grotesk", "Segoe UI", sans-serif;
         background:
-          radial-gradient(900px 500px at 5% -10%, #294f9f66 0%, transparent 62%),
-          radial-gradient(750px 450px at 95% 0%, #2f2f7a44 0%, transparent 58%),
+          radial-gradient(900px 500px at 5% -10%, var(--bg-blob-1) 0%, transparent 62%),
+          radial-gradient(750px 450px at 95% 0%, var(--bg-blob-2) 0%, transparent 58%),
           var(--bg);
         color: var(--txt);
         margin: 0;
       }
+      body[data-theme="ocean"] {
+        --bg: #04161f;
+        --panel: #0a2530cc;
+        --panel-solid: #0d2a36;
+        --line: #2f5d66;
+        --line-soft: #264a52;
+        --txt: #e7fbff;
+        --sub: #9bd2dc;
+        --ok: #3be49d;
+        --warn: #ffc96a;
+        --err: #ff818f;
+        --accent: #38bdf8;
+        --bg-blob-1: #0b8bc366;
+        --bg-blob-2: #114d7f55;
+        --hero-start: #0e2a33cc;
+        --hero-end: #0a1f2dcc;
+        --chip-border: #2f7683;
+        --chip-bg: #123742;
+        --chip-text: #b8e6ef;
+        --input-bg: #0a202d;
+        --button-start: #28b4d4;
+        --button-end: #1f92cb;
+        --th-text: #b2e2eb;
+        --th-bg: #102c34;
+        --row-alt: #0f2a33b0;
+        --grid-line: #264a52;
+      }
+      body[data-theme="graphite"] {
+        --bg: #0b0f17;
+        --panel: #131927cc;
+        --panel-solid: #181f30;
+        --line: #3a4357;
+        --line-soft: #303a4f;
+        --txt: #eef2ff;
+        --sub: #aeb7cc;
+        --ok: #5ad79f;
+        --warn: #f8c46b;
+        --err: #ff8b98;
+        --accent: #8b9dbf;
+        --bg-blob-1: #5d6a8a40;
+        --bg-blob-2: #3f4c6840;
+        --hero-start: #1a2234cc;
+        --hero-end: #151c2bcc;
+        --chip-border: #596583;
+        --chip-bg: #242d40;
+        --chip-text: #d0d8ef;
+        --input-bg: #141b29;
+        --button-start: #f48e6a;
+        --button-end: #e56d59;
+        --th-text: #c0c9dc;
+        --th-bg: #1a2233;
+        --row-alt: #182032b5;
+        --grid-line: #303a4f;
+      }
+      body[data-theme="sunset"] {
+        --bg: #1a0f16;
+        --panel: #2a1725cc;
+        --panel-solid: #341d2bcc;
+        --line: #6a3657;
+        --line-soft: #522b45;
+        --txt: #fff1f7;
+        --sub: #e7bfd3;
+        --ok: #5fe29f;
+        --warn: #ffc873;
+        --err: #ff8da8;
+        --accent: #ff8ccf;
+        --bg-blob-1: #9a3b6f55;
+        --bg-blob-2: #68317944;
+        --hero-start: #3a1f33cc;
+        --hero-end: #2d1828cc;
+        --chip-border: #965179;
+        --chip-bg: #47253d;
+        --chip-text: #ffd8e9;
+        --input-bg: #2a1726;
+        --button-start: #ff8d6f;
+        --button-end: #ff5e79;
+        --th-text: #f2c9dc;
+        --th-bg: #371f30;
+        --row-alt: #3a2232a8;
+        --grid-line: #522b45;
+      }
       .wrap { max-width: 1320px; margin: 28px auto 36px auto; padding: 0 18px; }
       .hero {
-        background: linear-gradient(155deg, #0f1d3fcc 0%, #0d1832cc 100%);
+        background: linear-gradient(155deg, var(--hero-start) 0%, var(--hero-end) 100%);
         border: 1px solid var(--line);
         border-radius: 16px;
         padding: 20px;
@@ -256,9 +351,9 @@ class handler(BaseHTTPRequestHandler):
         gap: 14px;
       }
       .chip {
-        border: 1px solid #4666a0;
-        background: #142347;
-        color: #c7d7ff;
+        border: 1px solid var(--chip-border);
+        background: var(--chip-bg);
+        color: var(--chip-text);
         border-radius: 999px;
         padding: 6px 10px;
         font-size: 12px;
@@ -271,28 +366,28 @@ class handler(BaseHTTPRequestHandler):
       .muted { color: var(--sub); }
       .controls {
         display: grid;
-        grid-template-columns: 2fr 0.8fr 1fr;
+        grid-template-columns: 2fr 0.8fr 1fr 1fr;
         gap: 10px;
         margin-top: 14px;
       }
-      input, button {
+      input, button, select {
         height: 42px;
         border-radius: 12px;
         border: 1px solid var(--line);
-        background: #0a152c;
+        background: var(--input-bg);
         color: var(--txt);
         padding: 0 12px;
         font-family: inherit;
         font-size: 14px;
       }
-      input:focus {
+      input:focus, select:focus {
         outline: none;
         border-color: var(--accent);
         box-shadow: 0 0 0 3px #6d8dff2b;
       }
       button {
         cursor: pointer;
-        background: linear-gradient(135deg, #ff7c74 0%, #f15653 100%);
+        background: linear-gradient(135deg, var(--button-start) 0%, var(--button-end) 100%);
         border: 0;
         font-weight: 700;
         transition: transform 120ms ease, filter 120ms ease;
@@ -352,14 +447,14 @@ class handler(BaseHTTPRequestHandler):
         vertical-align: top;
       }
       th {
-        color: #acc0eb;
+        color: var(--th-text);
         font-weight: 700;
         letter-spacing: 0.04em;
         text-transform: uppercase;
         font-size: 11px;
-        background: #0e1934;
+        background: var(--th-bg);
       }
-      tr:nth-child(even) td { background: #0d1830a8; }
+      tr:nth-child(even) td { background: var(--row-alt); }
       .ok { color: var(--ok); }
       .warn { color: var(--warn); }
       .err { color: var(--err); }
@@ -416,6 +511,12 @@ class handler(BaseHTTPRequestHandler):
         <div class="controls">
           <input id="token" type="password" placeholder="Bearer token (TRADING_BOT_STATUS_TOKEN)" autocomplete="off" />
           <input id="refresh" type="number" min="15" value="60" title="Auto-refresh interval in seconds" />
+          <select id="theme" title="Dashboard color theme">
+            <option value="midnight">Theme: Midnight</option>
+            <option value="ocean">Theme: Ocean</option>
+            <option value="graphite">Theme: Graphite</option>
+            <option value="sunset">Theme: Sunset</option>
+          </select>
           <button id="refreshBtn">Refresh Now</button>
         </div>
         <div class="status" id="status">Ready. Waiting for backend snapshot.</div>
@@ -497,9 +598,11 @@ class handler(BaseHTTPRequestHandler):
       const $ = (id) => document.getElementById(id);
       const statusEl = $("status");
       const tokenInput = $("token");
+      const themeSelect = $("theme");
       let timer = null;
       let signalChart = null;
       let scoreChart = null;
+      let lastSnapshot = null;
 
       function text(v) {
         if (v === null || v === undefined || v === "") return "-";
@@ -564,6 +667,23 @@ class handler(BaseHTTPRequestHandler):
         return null;
       }
 
+      function readVar(name, fallback) {
+        const v = getComputedStyle(document.body).getPropertyValue(name);
+        const out = String(v || "").trim();
+        return out || fallback;
+      }
+
+      function applyTheme(themeName) {
+        const normalized = ["midnight", "ocean", "graphite", "sunset"].includes(themeName) ? themeName : "midnight";
+        if (normalized === "midnight") {
+          document.body.removeAttribute("data-theme");
+        } else {
+          document.body.setAttribute("data-theme", normalized);
+        }
+        if (themeSelect && themeSelect.value !== normalized) themeSelect.value = normalized;
+        try { localStorage.setItem("bobyt_dashboard_theme", normalized); } catch (e) {}
+      }
+
       function setChartFallback(chartId, fallbackId, show) {
         const chartEl = $(chartId);
         const fallbackEl = $(fallbackId);
@@ -618,8 +738,14 @@ class handler(BaseHTTPRequestHandler):
               datasets: [
                 {
                   data: signalValues,
-                  backgroundColor: ["#39d98a", "#ffc368", "#ff7a87", "#6d8dff", "#8ca0c7"],
-                  borderColor: "#0f1b37",
+                  backgroundColor: [
+                    readVar("--ok", "#39d98a"),
+                    readVar("--warn", "#ffc368"),
+                    readVar("--err", "#ff7a87"),
+                    readVar("--accent", "#6d8dff"),
+                    readVar("--sub", "#8ca0c7"),
+                  ],
+                  borderColor: readVar("--panel-solid", "#0f1b37"),
                   borderWidth: 2,
                   hoverOffset: 6,
                 },
@@ -628,7 +754,7 @@ class handler(BaseHTTPRequestHandler):
             options: {
               maintainAspectRatio: false,
               plugins: {
-                legend: { labels: { color: "#dbe6ff", font: { family: "Space Grotesk" } } },
+                legend: { labels: { color: readVar("--txt", "#dbe6ff"), font: { family: "Space Grotesk" } } },
               },
             },
           });
@@ -654,7 +780,7 @@ class handler(BaseHTTPRequestHandler):
                 {
                   label: "Score",
                   data: scoreRows.map((r) => Number(r.score.toFixed(2))),
-                  backgroundColor: "#6d8dff",
+                  backgroundColor: readVar("--accent", "#6d8dff"),
                   borderRadius: 6,
                   maxBarThickness: 36,
                 },
@@ -664,12 +790,12 @@ class handler(BaseHTTPRequestHandler):
               maintainAspectRatio: false,
               scales: {
                 x: {
-                  ticks: { color: "#b9c9ec", font: { family: "Space Grotesk" } },
-                  grid: { color: "#1d2a47" },
+                  ticks: { color: readVar("--sub", "#b9c9ec"), font: { family: "Space Grotesk" } },
+                  grid: { color: readVar("--grid-line", "#1d2a47") },
                 },
                 y: {
-                  ticks: { color: "#b9c9ec", font: { family: "Space Grotesk" } },
-                  grid: { color: "#1d2a47" },
+                  ticks: { color: readVar("--sub", "#b9c9ec"), font: { family: "Space Grotesk" } },
+                  grid: { color: readVar("--grid-line", "#1d2a47") },
                 },
               },
               plugins: {
@@ -805,6 +931,7 @@ class handler(BaseHTTPRequestHandler):
             setStatus("Status fetch failed: " + (data.error || ("HTTP " + res.status)), "err");
             return;
           }
+          lastSnapshot = data;
           if (!data.has_data) {
             $("m_scanned").textContent = "-";
             $("m_buy").textContent = "-";
@@ -851,6 +978,18 @@ class handler(BaseHTTPRequestHandler):
         if (timer) clearInterval(timer);
         const sec = Math.max(15, Number($("refresh").value || 60));
         timer = setInterval(fetchStatus, sec * 1000);
+      }
+
+      if (themeSelect) {
+        let savedTheme = "midnight";
+        try { savedTheme = localStorage.getItem("bobyt_dashboard_theme") || "midnight"; } catch (e) {}
+        applyTheme(savedTheme);
+        themeSelect.addEventListener("change", () => {
+          applyTheme(themeSelect.value);
+          if (lastSnapshot) renderCharts(lastSnapshot);
+        });
+      } else {
+        applyTheme("midnight");
       }
 
       $("refreshBtn").addEventListener("click", fetchStatus);

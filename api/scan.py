@@ -449,21 +449,30 @@ class handler(BaseHTTPRequestHandler):
         font-size: 22px;
         letter-spacing: -0.01em;
       }
-      .chart-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 14px;
-        margin-top: 14px;
+      .tv-box { margin-top: 14px; }
+      .tv-meta {
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--line-soft);
+        color: var(--sub);
+        font-size: 12px;
+        letter-spacing: 0.03em;
       }
-      .chart-box { padding-bottom: 8px; }
-      .chart-wrap {
-        height: 290px;
-        padding: 10px 14px 6px 14px;
+      .tv-wrap {
+        height: 420px;
+        padding: 8px 10px 10px 10px;
       }
-      .chart-fallback {
-        padding: 12px 14px 14px 14px;
+      #tvChartHost, #tvChart {
+        width: 100%;
+        height: 100%;
+      }
+      .tv-fallback {
+        margin: 12px;
+        border: 1px dashed var(--line);
+        border-radius: 12px;
         color: var(--sub);
         font-size: 13px;
+        padding: 16px;
+        text-align: center;
       }
       .table-wrap { overflow-x: auto; }
       table { width: 100%; border-collapse: collapse; min-width: 820px; }
@@ -528,7 +537,7 @@ class handler(BaseHTTPRequestHandler):
         .title-row { flex-direction: column; align-items: flex-start; }
       }
       @media (max-width: 980px) {
-        .chart-grid { grid-template-columns: 1fr; }
+        .tv-wrap { height: 360px; }
       }
     </style>
   </head>
@@ -578,16 +587,14 @@ class handler(BaseHTTPRequestHandler):
         <div class="stat"><div class="k">Execution</div><div class="v" id="m_exec">-</div></div>
       </div>
 
-      <div class="chart-grid">
-        <div class="box chart-box">
-          <h3>Signal Mix</h3>
-          <div class="chart-wrap"><canvas id="signalChart"></canvas></div>
-          <div class="chart-fallback" id="signalChartFallback" style="display:none;">No signal data yet.</div>
-        </div>
-        <div class="box chart-box">
-          <h3>Top Score Chart</h3>
-          <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
-          <div class="chart-fallback" id="scoreChartFallback" style="display:none;">No top results yet.</div>
+      <div class="box tv-box">
+        <h3>Live Market Chart</h3>
+        <div class="tv-meta" id="tvMeta">Focus: waiting for trade symbol...</div>
+        <div class="tv-wrap">
+          <div id="tvChartHost"></div>
+          <div class="tv-fallback" id="tvFallback" style="display:none;">
+            No symbol available yet. The chart will auto-load when the bot has an active/recent trade symbol.
+          </div>
         </div>
       </div>
 
@@ -639,15 +646,15 @@ class handler(BaseHTTPRequestHandler):
         </div>
       </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script>
       const $ = (id) => document.getElementById(id);
       const statusEl = $("status");
       const tokenInput = $("token");
       const themeSelect = $("theme");
       let timer = null;
-      let signalChart = null;
-      let scoreChart = null;
+      let tradingViewScriptPromise = null;
+      let tradingViewWidget = null;
+      let currentTradingViewSymbol = "";
       let lastSnapshot = null;
 
       function text(v) {
@@ -708,17 +715,6 @@ class handler(BaseHTTPRequestHandler):
         return "-";
       }
 
-      function destroyChart(instance) {
-        if (instance && typeof instance.destroy === "function") instance.destroy();
-        return null;
-      }
-
-      function readVar(name, fallback) {
-        const v = getComputedStyle(document.body).getPropertyValue(name);
-        const out = String(v || "").trim();
-        return out || fallback;
-      }
-
       function applyTheme(themeName) {
         const normalized = ["midnight", "ocean", "graphite", "sunset"].includes(themeName) ? themeName : "midnight";
         if (normalized === "midnight") {
@@ -730,125 +726,112 @@ class handler(BaseHTTPRequestHandler):
         try { localStorage.setItem("bobyt_dashboard_theme", normalized); } catch (e) {}
       }
 
-      function setChartFallback(chartId, fallbackId, show) {
-        const chartEl = $(chartId);
-        const fallbackEl = $(fallbackId);
-        if (!chartEl || !fallbackEl) return;
-        chartEl.style.display = show ? "none" : "block";
-        fallbackEl.style.display = show ? "block" : "none";
+      function toggleTradingViewFallback(showFallback, message = "") {
+        const host = $("tvChartHost");
+        const fallback = $("tvFallback");
+        if (!host || !fallback) return;
+        host.style.display = showFallback ? "none" : "block";
+        fallback.style.display = showFallback ? "block" : "none";
+        if (message) fallback.textContent = message;
       }
 
-      function chartActionClass(action) {
-        const a = String(action || "").toUpperCase();
-        if (a.includes("BUY")) return "BUY";
-        if (a.includes("SELL")) return "SELL";
-        if (a.includes("WAIT")) return "WAIT";
-        if (a.includes("HOLD")) return "HOLD";
-        return "OTHER";
+      function toTradingViewSymbol(rawSymbol) {
+        const sym = String(rawSymbol || "").trim().toUpperCase();
+        if (!sym) return "";
+        if (sym.includes(":")) return sym;
+        return "BYBIT:" + sym;
       }
 
-      function renderCharts(snapshot) {
-        if (!window.Chart) return;
+      function pickTradingSymbol(snapshot, executionFeed) {
+        const openSymbols = Array.isArray(snapshot?.positions?.open_symbols) ? snapshot.positions.open_symbols : [];
+        if (openSymbols.length > 0) return { symbol: openSymbols[0], reason: "open position" };
 
-        const summary = (snapshot && snapshot.summary) || {};
-        const topResults = Array.isArray(snapshot && snapshot.top_results) ? snapshot.top_results : [];
-
-        const signalCounts = {
-          BUY: num(summary.buy_signals),
-          WAIT: num(summary.wait_signals),
-          SELL: 0,
-          HOLD: 0,
-          OTHER: 0,
-        };
-
-        topResults.forEach((row) => {
-          const actionClass = chartActionClass(row && row.action);
-          if (actionClass === "BUY" || actionClass === "WAIT" || actionClass === "SELL" || actionClass === "HOLD") {
-            signalCounts[actionClass] += 1;
-          } else {
-            signalCounts.OTHER += 1;
-          }
-        });
-
-        const signalLabels = ["BUY", "WAIT", "SELL", "HOLD", "OTHER"];
-        const signalValues = signalLabels.map((k) => signalCounts[k] || 0);
-        const signalTotal = signalValues.reduce((a, b) => a + b, 0);
-        setChartFallback("signalChart", "signalChartFallback", signalTotal <= 0);
-        signalChart = destroyChart(signalChart);
-        if (signalTotal > 0) {
-          const ctx = $("signalChart").getContext("2d");
-          signalChart = new window.Chart(ctx, {
-            type: "doughnut",
-            data: {
-              labels: signalLabels,
-              datasets: [
-                {
-                  data: signalValues,
-                  backgroundColor: [
-                    readVar("--ok", "#39d98a"),
-                    readVar("--warn", "#ffc368"),
-                    readVar("--err", "#ff7a87"),
-                    readVar("--accent", "#6d8dff"),
-                    readVar("--sub", "#8ca0c7"),
-                  ],
-                  borderColor: readVar("--panel-solid", "#0f1b37"),
-                  borderWidth: 2,
-                  hoverOffset: 6,
-                },
-              ],
-            },
-            options: {
-              maintainAspectRatio: false,
-              plugins: {
-                legend: { labels: { color: readVar("--txt", "#dbe6ff"), font: { family: "Space Grotesk" } } },
-              },
-            },
-          });
+        const feed = Array.isArray(executionFeed) ? executionFeed : [];
+        if (feed.length > 0) {
+          const latest = feed[feed.length - 1] || {};
+          if (latest.symbol) return { symbol: latest.symbol, reason: "latest execution event" };
         }
 
-        const scoreRows = topResults
-          .map((row) => ({
-            symbol: text(row && row.symbol),
-            score: num(row && row.score, NaN),
-          }))
-          .filter((row) => Number.isFinite(row.score))
-          .slice(0, 8);
+        const topResults = Array.isArray(snapshot?.top_results) ? snapshot.top_results : [];
+        const buyCandidate = topResults.find((row) => String(row?.action || "").includes("BUY"));
+        if (buyCandidate?.symbol) return { symbol: buyCandidate.symbol, reason: "top BUY candidate" };
 
-        setChartFallback("scoreChart", "scoreChartFallback", scoreRows.length === 0);
-        scoreChart = destroyChart(scoreChart);
-        if (scoreRows.length > 0) {
-          const ctx = $("scoreChart").getContext("2d");
-          scoreChart = new window.Chart(ctx, {
-            type: "bar",
-            data: {
-              labels: scoreRows.map((r) => r.symbol),
-              datasets: [
-                {
-                  label: "Score",
-                  data: scoreRows.map((r) => Number(r.score.toFixed(2))),
-                  backgroundColor: readVar("--accent", "#6d8dff"),
-                  borderRadius: 6,
-                  maxBarThickness: 36,
-                },
-              ],
-            },
-            options: {
-              maintainAspectRatio: false,
-              scales: {
-                x: {
-                  ticks: { color: readVar("--sub", "#b9c9ec"), font: { family: "Space Grotesk" } },
-                  grid: { color: readVar("--grid-line", "#1d2a47") },
-                },
-                y: {
-                  ticks: { color: readVar("--sub", "#b9c9ec"), font: { family: "Space Grotesk" } },
-                  grid: { color: readVar("--grid-line", "#1d2a47") },
-                },
-              },
-              plugins: {
-                legend: { display: false },
-              },
-            },
+        const ranked = topResults[0];
+        if (ranked?.symbol) return { symbol: ranked.symbol, reason: "top ranked symbol" };
+
+        return { symbol: "", reason: "no trade symbol yet" };
+      }
+
+      function ensureTradingViewScript() {
+        if (window.TradingView && typeof window.TradingView.widget === "function") {
+          return Promise.resolve();
+        }
+        if (tradingViewScriptPromise) return tradingViewScriptPromise;
+
+        tradingViewScriptPromise = new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://s3.tradingview.com/tv.js";
+          script.async = true;
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error("Failed to load TradingView script"));
+          document.head.appendChild(script);
+        });
+        return tradingViewScriptPromise;
+      }
+
+      async function renderTradingViewChart(snapshot, executionFeed) {
+        const tvMeta = $("tvMeta");
+        const host = $("tvChartHost");
+        if (!tvMeta || !host) return;
+
+        const picked = pickTradingSymbol(snapshot || {}, executionFeed || []);
+        const tvSymbol = toTradingViewSymbol(picked.symbol);
+        if (!tvSymbol) {
+          tvMeta.textContent = "Focus: waiting for trade symbol...";
+          toggleTradingViewFallback(
+            true,
+            "No symbol available yet. The chart will auto-load when the bot has an active/recent trade symbol."
+          );
+          return;
+        }
+
+        tvMeta.textContent = "Focus: " + tvSymbol + " (" + picked.reason + ")";
+        toggleTradingViewFallback(false);
+
+        if (currentTradingViewSymbol === tvSymbol && tradingViewWidget) return;
+
+        try {
+          await ensureTradingViewScript();
+        } catch (err) {
+          toggleTradingViewFallback(true, "TradingView script failed to load.");
+          return;
+        }
+
+        currentTradingViewSymbol = tvSymbol;
+        tradingViewWidget = null;
+        host.innerHTML = '<div id="tvChart"></div>';
+
+        try {
+          tradingViewWidget = new window.TradingView.widget({
+            container_id: "tvChart",
+            autosize: true,
+            symbol: tvSymbol,
+            interval: "15",
+            timezone: "Etc/UTC",
+            theme: "dark",
+            style: "1",
+            locale: "en",
+            enable_publishing: false,
+            allow_symbol_change: true,
+            withdateranges: true,
+            hide_side_toolbar: false,
+            details: false,
+            hotlist: false,
+            calendar: false,
+            studies: ["RSI@tv-basicstudies", "MACD@tv-basicstudies"],
           });
+        } catch (err) {
+          toggleTradingViewFallback(true, "Unable to render TradingView chart for " + tvSymbol + ".");
         }
       }
 
@@ -989,7 +972,7 @@ class handler(BaseHTTPRequestHandler):
             setPlaceholderRow($("perfRows"), 7, "No performance data yet.");
             setPlaceholderRow($("rows"), 8, "No backend snapshot yet. Trigger /api/scan from cron first.");
             setPlaceholderRow($("execRows"), 5, "No execution events yet.");
-            renderCharts({ summary: {}, top_results: [] });
+            renderTradingViewChart({}, []);
             setStatus("No backend snapshot yet. Run /api/scan (cron/manual) first.", "warn");
             return;
           }
@@ -1003,12 +986,12 @@ class handler(BaseHTTPRequestHandler):
 
           renderPerformanceRows(data.performance || {});
           renderTopRows(data.top_results || []);
-          renderCharts(data || {});
           const execFeed =
             (Array.isArray(data.execution_events) && data.execution_events.length > 0)
               ? data.execution_events
               : (data.execution_events_history || []);
           renderExecutionRows(execFeed);
+          renderTradingViewChart(data || {}, execFeed || []);
             setStatus(
               "Backend last scan: " + text(data.time) +
               " | state: " + text(data.state_file) +
@@ -1032,7 +1015,13 @@ class handler(BaseHTTPRequestHandler):
         applyTheme(savedTheme);
         themeSelect.addEventListener("change", () => {
           applyTheme(themeSelect.value);
-          if (lastSnapshot) renderCharts(lastSnapshot);
+          if (lastSnapshot) {
+            const execFeed =
+              (Array.isArray(lastSnapshot.execution_events) && lastSnapshot.execution_events.length > 0)
+                ? lastSnapshot.execution_events
+                : (lastSnapshot.execution_events_history || []);
+            renderTradingViewChart(lastSnapshot, execFeed || []);
+          }
         });
       } else {
         applyTheme("midnight");

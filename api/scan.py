@@ -779,6 +779,22 @@ class handler(BaseHTTPRequestHandler):
       </div>
 
       <div class="box">
+        <h3>PnL by Token</h3>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Symbol</th><th>Trades</th><th>Wins</th><th>Losses</th><th>Win Rate</th><th>Net PnL (USDT)</th><th>Avg PnL/Trade</th>
+            </tr>
+          </thead>
+          <tbody id="tokenPnlRows">
+            <tr><td colspan="7" class="muted">No token PnL yet.</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      <div class="box">
         <h3>Closed Trades (PnL)</h3>
         <div class="table-wrap">
         <table>
@@ -1154,6 +1170,55 @@ class handler(BaseHTTPRequestHandler):
         });
       }
 
+      function renderTokenPnlRows(trades) {
+        const tbody = $("tokenPnlRows");
+        if (!Array.isArray(trades) || trades.length === 0) {
+          setPlaceholderRow(tbody, 7, "No token PnL yet.");
+          return;
+        }
+
+        const grouped = new Map();
+        trades.forEach((t) => {
+          const symbol = String(t.symbol || "-").toUpperCase();
+          if (!grouped.has(symbol)) {
+            grouped.set(symbol, {
+              symbol,
+              trades: 0,
+              wins: 0,
+              losses: 0,
+              netPnl: 0,
+            });
+          }
+          const row = grouped.get(symbol);
+          row.trades += 1;
+          const pnl = num(t.pnl_usdt, 0);
+          row.netPnl += pnl;
+          if (pnl > 0) row.wins += 1;
+          if (pnl < 0) row.losses += 1;
+        });
+
+        const rows = Array.from(grouped.values()).sort((a, b) => b.netPnl - a.netPnl);
+        if (rows.length === 0) {
+          setPlaceholderRow(tbody, 7, "No token PnL yet.");
+          return;
+        }
+
+        tbody.replaceChildren();
+        rows.forEach((r) => {
+          const tr = document.createElement("tr");
+          const winRate = r.trades > 0 ? (r.wins / r.trades) * 100 : 0;
+          const avgPnl = r.trades > 0 ? (r.netPnl / r.trades) : 0;
+          appendCell(tr, r.symbol);
+          appendCell(tr, r.trades);
+          appendCell(tr, r.wins, "ok");
+          appendCell(tr, r.losses, r.losses > 0 ? "err" : "");
+          appendCell(tr, fmtPct(winRate), winRate >= 50 ? "ok" : "warn");
+          appendCell(tr, fmtUsdt(r.netPnl), r.netPnl >= 0 ? "ok" : "err");
+          appendCell(tr, fmtUsdt(avgPnl), avgPnl >= 0 ? "ok" : "err");
+          tbody.appendChild(tr);
+        });
+      }
+
       function renderTopRows(rows) {
         const tbody = $("rows");
         if (!rows.length) {
@@ -1237,6 +1302,7 @@ class handler(BaseHTTPRequestHandler):
             $("u_profit").textContent = "-";
             $("u_profit").className = "v";
             setPlaceholderRow($("perfRows"), 7, "No performance data yet.");
+            setPlaceholderRow($("tokenPnlRows"), 7, "No token PnL yet.");
             setPlaceholderRow($("tradeRows"), 8, "No closed trades yet.");
             setPlaceholderRow($("rows"), 8, "No backend snapshot yet. Trigger /api/scan from cron first.");
             setPlaceholderRow($("execRows"), 5, "No execution events yet.");
@@ -1279,6 +1345,7 @@ class handler(BaseHTTPRequestHandler):
           $("u_profit").className = netProfit >= 0 ? "v ok" : "v err";
 
           renderPerformanceRows(data.performance || {});
+          renderTokenPnlRows(data.recent_closed_trades || []);
           renderClosedTradeRows(data.recent_closed_trades || []);
           renderTopRows(data.top_results || []);
           const execFeed =

@@ -253,6 +253,17 @@ def main() -> int:
             warnings.append(
                 f"max_position_notional_usdt={max_notional:.2f} is high. Confirm this is intentional."
             )
+        comp_cfg_runtime = risk_cfg.get("compounding", {})
+        if not isinstance(comp_cfg_runtime, dict):
+            comp_cfg_runtime = {}
+        comp_enabled_runtime = bool(comp_cfg_runtime.get("enabled", False))
+        comp_max_notional = float(comp_cfg_runtime.get("max_position_notional_usdt", 0.0))
+        if comp_enabled_runtime and comp_max_notional > 0 and comp_max_notional < max_notional:
+            warnings.append(
+                "risk.compounding.max_position_notional_usdt is below risk.max_position_notional_usdt. "
+                "Current sizing logic enforces autoscaled notional >= base max cap, so the smaller "
+                "compounding max may not take effect as expected."
+            )
         if runtime_category != "spot":
             failures.append(
                 "Live mode must use exchange.category='spot' (derivatives are disabled in this project)."

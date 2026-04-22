@@ -53,12 +53,12 @@
     "open_on_buy_signal": true,
     "account_equity_usdt": 100,
     "risk_per_trade_pct": 0.8,
-    "max_position_notional_usdt": 50,
+    "max_position_notional_usdt": 100,
     "compounding": {
       "enabled": true,
       "position_notional_pct_of_equity": 15,
       "min_position_notional_usdt": 20,
-      "max_position_notional_usdt": 75,
+      "max_position_notional_usdt": 100,
       "autoscale": {
         "enabled": true,
         "lookback_days": 3,

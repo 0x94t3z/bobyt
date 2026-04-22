@@ -779,6 +779,22 @@ class handler(BaseHTTPRequestHandler):
       </div>
 
       <div class="box">
+        <h3>Closed Trades (PnL)</h3>
+        <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Closed At</th><th>Symbol</th><th>Signal</th><th>Entry</th><th>Exit</th><th>Qty</th><th>Return %</th><th>PnL (USDT)</th>
+            </tr>
+          </thead>
+          <tbody id="tradeRows">
+            <tr><td colspan="8" class="muted">No closed trades yet.</td></tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      <div class="box">
         <h3>Top Results</h3>
         <div class="table-wrap">
         <table>
@@ -1063,6 +1079,14 @@ class handler(BaseHTTPRequestHandler):
         return num(v).toFixed(2);
       }
 
+      function fmtQty(v) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return text(v);
+        if (Math.abs(n) >= 1000) return n.toFixed(2);
+        if (Math.abs(n) >= 1) return n.toFixed(4);
+        return n.toFixed(8);
+      }
+
       function shortErr(v) {
         const s = String(v || "");
         if (!s) return "";
@@ -1105,6 +1129,27 @@ class handler(BaseHTTPRequestHandler):
           appendCell(tr, fmtPf(d.profit_factor));
           appendCell(tr, fmtUsdt(d.max_drawdown_usdt));
           appendCell(tr, fmtUsdt(d.expectancy_usdt));
+          tbody.appendChild(tr);
+        });
+      }
+
+      function renderClosedTradeRows(trades) {
+        const tbody = $("tradeRows");
+        if (!Array.isArray(trades) || trades.length === 0) {
+          setPlaceholderRow(tbody, 8, "No closed trades yet.");
+          return;
+        }
+        tbody.replaceChildren();
+        trades.slice(0, 20).forEach((t) => {
+          const tr = document.createElement("tr");
+          appendCell(tr, t.closed_at || "-");
+          appendCell(tr, t.symbol || "-");
+          appendCell(tr, t.exit_signal || "-");
+          appendCell(tr, fmtPrice(t.entry_price));
+          appendCell(tr, fmtPrice(t.exit_price));
+          appendCell(tr, fmtQty(t.qty));
+          appendCell(tr, fmtPct(t.net_return_pct), num(t.net_return_pct, 0) >= 0 ? "ok" : "err");
+          appendCell(tr, fmtUsdt(t.pnl_usdt), num(t.pnl_usdt, 0) >= 0 ? "ok" : "err");
           tbody.appendChild(tr);
         });
       }
@@ -1192,6 +1237,7 @@ class handler(BaseHTTPRequestHandler):
             $("u_profit").textContent = "-";
             $("u_profit").className = "v";
             setPlaceholderRow($("perfRows"), 7, "No performance data yet.");
+            setPlaceholderRow($("tradeRows"), 8, "No closed trades yet.");
             setPlaceholderRow($("rows"), 8, "No backend snapshot yet. Trigger /api/scan from cron first.");
             setPlaceholderRow($("execRows"), 5, "No execution events yet.");
             renderTradingViewChart({}, []);
@@ -1233,6 +1279,7 @@ class handler(BaseHTTPRequestHandler):
           $("u_profit").className = netProfit >= 0 ? "v ok" : "v err";
 
           renderPerformanceRows(data.performance || {});
+          renderClosedTradeRows(data.recent_closed_trades || []);
           renderTopRows(data.top_results || []);
           const execFeed =
             (Array.isArray(data.execution_events) && data.execution_events.length > 0)
@@ -1399,6 +1446,7 @@ class handler(BaseHTTPRequestHandler):
             errors = cycle.get("errors", [])
             execution_events = cycle.get("execution_events", [])
             execution_events_history = cycle.get("execution_events_history", [])
+            recent_closed_trades = cycle.get("recent_closed_trades", [])
             open_symbols = extract_open_symbols(cycle)
             pending_entry_symbols = extract_pending_entry_symbols(cycle)
             execution_mode = str(
@@ -1435,6 +1483,7 @@ class handler(BaseHTTPRequestHandler):
                 "top_results": compact_results(results, limit=10),
                 "execution_events": execution_events,
                 "execution_events_history": execution_events_history,
+                "recent_closed_trades": recent_closed_trades,
                 "positions": {
                     "open_count": len(open_symbols),
                     "open_symbols": open_symbols,

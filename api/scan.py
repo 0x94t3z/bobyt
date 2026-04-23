@@ -656,7 +656,7 @@ class handler(BaseHTTPRequestHandler):
         h1 { font-size: 30px; }
         .portfolio-card {
           width: 100%;
-          min-height: 240px;
+          min-height: 232px;
           padding: 14px;
           aspect-ratio: auto;
         }
@@ -693,7 +693,8 @@ class handler(BaseHTTPRequestHandler):
         th, td { font-size: 13px; }
       }
       @media (max-width: 560px) {
-        .portfolio-card { min-height: 256px; padding: 12px; }
+        .portfolio-card { min-height: 236px; padding: 12px; }
+        .cc-middle { gap: 4px; }
         .cc-chip-row { gap: 10px; }
         .cc-chip { width: 48px; height: 31px; }
         .cc-circle {
@@ -707,37 +708,43 @@ class handler(BaseHTTPRequestHandler):
           height: 20px;
         }
         .cc-number {
-          margin-top: 4px;
+          margin-top: 2px;
           font-size: 14px;
-          letter-spacing: 0.095em;
+          letter-spacing: 0.085em;
         }
-        .portfolio-user { font-size: 14px; }
+        .portfolio-user {
+          font-size: 13px;
+          line-height: 1.1;
+        }
         .cc-bottom {
           display: block;
           position: relative;
-          min-height: 76px;
+          min-height: 66px;
         }
         .portfolio-grid {
           grid-template-columns: 1fr;
-          gap: 6px;
-          max-width: calc(100% - 102px);
+          gap: 4px;
+          max-width: calc(100% - 94px);
         }
-        .portfolio-item .k { font-size: 10px; }
-        .portfolio-item .v { font-size: 16px; }
+        .portfolio-item .k { font-size: 9px; }
+        .portfolio-item .v {
+          font-size: 15px;
+          margin-top: 1px;
+        }
         .cc-brand-stack {
           position: absolute;
-          right: 2px;
-          bottom: 2px;
-          min-width: 68px;
-          gap: 4px;
+          right: 0;
+          bottom: 0;
+          min-width: 64px;
+          gap: 3px;
           align-items: flex-end;
         }
         .portfolio-brand {
-          font-size: 8.5px;
+          font-size: 8px;
           letter-spacing: 0.08em;
           text-align: right;
         }
-        .portfolio-coin-mark { width: 34px; height: 34px; font-size: 16px; }
+        .portfolio-coin-mark { width: 32px; height: 32px; font-size: 15px; }
       }
       @media (max-width: 980px) {
         .tv-wrap { height: 360px; }

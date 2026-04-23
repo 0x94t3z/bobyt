@@ -712,12 +712,32 @@ class handler(BaseHTTPRequestHandler):
           letter-spacing: 0.095em;
         }
         .portfolio-user { font-size: 14px; }
-        .portfolio-grid { grid-template-columns: 1fr; gap: 6px; }
+        .cc-bottom {
+          display: block;
+          position: relative;
+          min-height: 76px;
+        }
+        .portfolio-grid {
+          grid-template-columns: 1fr;
+          gap: 6px;
+          max-width: calc(100% - 102px);
+        }
         .portfolio-item .k { font-size: 10px; }
         .portfolio-item .v { font-size: 16px; }
-        .cc-brand-stack { min-width: 72px; gap: 5px; }
-        .portfolio-brand { font-size: 9px; }
-        .portfolio-coin-mark { width: 36px; height: 36px; font-size: 17px; }
+        .cc-brand-stack {
+          position: absolute;
+          right: 2px;
+          bottom: 2px;
+          min-width: 68px;
+          gap: 4px;
+          align-items: flex-end;
+        }
+        .portfolio-brand {
+          font-size: 8.5px;
+          letter-spacing: 0.08em;
+          text-align: right;
+        }
+        .portfolio-coin-mark { width: 34px; height: 34px; font-size: 16px; }
       }
       @media (max-width: 980px) {
         .tv-wrap { height: 360px; }

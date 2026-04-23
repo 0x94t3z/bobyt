@@ -1,12 +1,13 @@
 # Crypto Alert Bot (Bybit)
 
-Rule-based crypto scanner + execution engine with Streamlit UI and Vercel API mode.
+Rule-based crypto scanner + execution engine with Vercel API/dashboard mode and optional Streamlit UI.
 
 It can:
 - scan symbols
 - generate `BUY_LIMIT / WAIT / SELL` actions
 - optionally execute live Bybit orders with safety locks
 - track state/journal/performance
+- show closed-trade PnL and grouped **PnL by token** in the dashboard
 
 Live execution is enforced as Bybit **spot-only** (no derivatives/futures).
 
@@ -14,16 +15,20 @@ Live execution is enforced as Bybit **spot-only** (no derivatives/futures).
 
 ```mermaid
 flowchart LR
-  A["cron-job.org / Manual Trigger"] --> B["/api/scan.py on Vercel"]
-  B --> C["trading_bot.bot.scan_once"]
-  C --> D["Bybit Market Data API"]
-  C --> E["Bybit Order API"]
-  C --> F["State Store (File or Neon Postgres)"]
-  G["Streamlit UI"] --> C
+  A["cron-job.org / Manual Trigger"] --> B["/api/scan"]
+  B --> C["api/index.py -> api/scan.py handler"]
+  C --> D["trading_bot.bot.scan_once"]
+  E["Browser Dashboard /"] --> F["/api/status"]
+  F --> C
+  D --> G["Bybit Market Data API"]
+  D --> H["Bybit Order API"]
+  D --> I["State Store (File or Neon Postgres)"]
+  J["Streamlit UI"] --> D
 ```
 
 Runtime behavior:
 - Vercel/API mode: scheduled scans via `cron-job.org`, returns JSON.
+- Vercel dashboard mode: `GET /` serves monitoring UI, reading snapshot from `GET /api/status`.
 - Local/UI mode: interactive scans from Streamlit.
 - State: local file or Postgres (`Neon` recommended on Vercel).
 
@@ -31,6 +36,7 @@ Runtime behavior:
 
 | Path | Purpose |
 |---|---|
+| `api/index.py` | Vercel Python entrypoint shim (`/api`) |
 | `api/scan.py` | Vercel serverless scan endpoint (`/api/scan`) |
 | `apps/crypto_alert_bot.py` | CLI bot entrypoint |
 | `apps/ui_dashboard.py` | Streamlit dashboard entrypoint |
@@ -241,6 +247,13 @@ This is expected and protects state/snapshots from overlapping writes.
 ```bash
 curl -sS -X POST "https://<your-app>.vercel.app/api/scan?config=configs/config.json" \
   -H "Authorization: Bearer <TRADING_BOT_SCAN_TOKEN>"
+```
+
+### Manual status test (`/api/status` is GET with status token)
+
+```bash
+curl -sS "https://<your-app>.vercel.app/api/status" \
+  -H "Authorization: Bearer <TRADING_BOT_STATUS_TOKEN>"
 ```
 
 ## Streamlit Cloud (Optional)

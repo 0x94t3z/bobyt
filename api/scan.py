@@ -654,19 +654,70 @@ class handler(BaseHTTPRequestHandler):
       }
       @media (max-width: 900px) {
         h1 { font-size: 30px; }
-        .portfolio-card { width: 100%; min-height: 220px; padding: 14px; }
+        .portfolio-card {
+          width: 100%;
+          min-height: 240px;
+          padding: 14px;
+          aspect-ratio: auto;
+        }
         .cc-number { font-size: 16px; letter-spacing: 0.11em; }
         .portfolio-user { font-size: 15px; }
-        .portfolio-grid { grid-template-columns: 1fr; gap: 8px; }
+        .cc-bottom {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          align-items: end;
+          gap: 10px;
+        }
+        .portfolio-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+          max-width: none;
+        }
         .portfolio-item .v { font-size: 18px; }
-        .cc-brand-stack { min-width: 68px; gap: 5px; }
-        .portfolio-brand { font-size: 10px; }
+        .cc-brand-stack {
+          min-width: 78px;
+          gap: 6px;
+          align-items: flex-end;
+          justify-content: flex-end;
+        }
+        .portfolio-brand {
+          font-size: 10px;
+          white-space: nowrap;
+          text-align: right;
+        }
         .portfolio-coin-mark { width: 40px; height: 40px; font-size: 18px; }
         .controls { grid-template-columns: 1fr; padding: 10px; }
         .control.token, .control.refresh, .control.action { grid-column: span 1; }
         .stats { grid-template-columns: 1fr 1fr; }
         .title-row { flex-direction: column; align-items: flex-start; }
         th, td { font-size: 13px; }
+      }
+      @media (max-width: 560px) {
+        .portfolio-card { min-height: 256px; padding: 12px; }
+        .cc-chip-row { gap: 10px; }
+        .cc-chip { width: 48px; height: 31px; }
+        .cc-circle {
+          width: 20px;
+          height: 20px;
+          box-shadow: 0 0 0 5px #ffbe401f;
+        }
+        .cc-circle::after {
+          left: 9px;
+          width: 20px;
+          height: 20px;
+        }
+        .cc-number {
+          margin-top: 4px;
+          font-size: 14px;
+          letter-spacing: 0.095em;
+        }
+        .portfolio-user { font-size: 14px; }
+        .portfolio-grid { grid-template-columns: 1fr; gap: 6px; }
+        .portfolio-item .k { font-size: 10px; }
+        .portfolio-item .v { font-size: 16px; }
+        .cc-brand-stack { min-width: 72px; gap: 5px; }
+        .portfolio-brand { font-size: 9px; }
+        .portfolio-coin-mark { width: 36px; height: 36px; font-size: 17px; }
       }
       @media (max-width: 980px) {
         .tv-wrap { height: 360px; }

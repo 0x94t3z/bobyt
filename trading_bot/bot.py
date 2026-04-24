@@ -100,6 +100,9 @@ BINANCE_INTERVAL_MAP: Dict[str, str] = {
 TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 LIVE_ACK_DEFAULT = "I_UNDERSTAND_LIVE_TRADING_RISK"
 _ENV_LOADED = False
+SPOT_ENTRY_QUOTE_BUFFER = 0.995
+SPOT_EXIT_QTY_BUFFER = 0.997
+SPOT_MIN_NOTIONAL_PRICE_HAIRCUT = 0.98
 
 
 def build_default_state() -> Dict[str, Any]:
@@ -1268,6 +1271,97 @@ def fetch_bybit_live_position_for_symbol(
         category=category,
         symbol=symbol,
     )
+
+
+def cancel_spot_protective_orders_before_exit(
+    base_urls: List[str],
+    api_key: str,
+    api_secret: str,
+    recv_window: int,
+    symbol: str,
+    target_qty: float = 0.0,
+) -> Dict[str, Any]:
+    """
+    Best-effort cleanup for spot protective sell orders before manual market exit.
+    This reduces double-close conflicts and follows common exchange-side exit flow.
+    """
+    open_orders = fetch_bybit_open_orders_for_symbol(
+        base_urls=base_urls,
+        api_key=api_key,
+        api_secret=api_secret,
+        recv_window=recv_window,
+        category="spot",
+        symbol=symbol,
+    )
+    candidates: List[Dict[str, Any]] = []
+    for row in open_orders:
+        side = str(row.get("side", "")).upper()
+        if side != "SELL":
+            continue
+        order_id = str(row.get("orderId", "")).strip()
+        order_link_id = str(row.get("orderLinkId", "")).strip()
+        if not order_id and not order_link_id:
+            continue
+        bot_owned = is_bot_owned_marker(row)
+        order_filter = str(row.get("orderFilter", "")).strip().lower()
+        stop_order_type = str(row.get("stopOrderType", "")).strip().lower()
+        trigger_price = to_float(row.get("triggerPrice"), 0.0)
+        tpsl_like = (
+            order_filter in {"tpslorder", "stoporder"}
+            or "take" in stop_order_type
+            or "stop" in stop_order_type
+            or trigger_price > 0
+        )
+        if not bot_owned:
+            if not tpsl_like or target_qty <= 0:
+                continue
+            row_qty = abs(to_float(row.get("qty"), 0.0))
+            if row_qty <= 0:
+                continue
+            qty_diff = abs(row_qty - target_qty) / max(target_qty, 1e-12)
+            # Tight guard: only touch non-bot TP/SL-like sells when qty is very close.
+            if qty_diff > 0.05:
+                continue
+        candidates.append(
+            {
+                "order_id": order_id,
+                "order_link_id": order_link_id,
+            }
+        )
+
+    cancelled = 0
+    attempted = 0
+    errors: List[str] = []
+    for row in candidates:
+        attempted += 1
+        try:
+            cancel_res = cancel_bybit_order(
+                base_urls=base_urls,
+                api_key=api_key,
+                api_secret=api_secret,
+                recv_window=recv_window,
+                category="spot",
+                symbol=symbol,
+                order_id=str(row.get("order_id", "")),
+                order_link_id=str(row.get("order_link_id", "")),
+            )
+            ret_code = int(to_float(cancel_res.get("retCode"), 1))
+            if ret_code == 0:
+                cancelled += 1
+                continue
+            ret_msg = str(cancel_res.get("retMsg", ""))
+            # Benign race: already filled/cancelled/order gone by the time we cancel.
+            if ret_code in {110001, 181017, 181018}:
+                continue
+            errors.append(f"retCode={ret_code} retMsg={ret_msg}")
+        except Exception as e:
+            errors.append(str(e))
+
+    return {
+        "attempted": attempted,
+        "cancelled": cancelled,
+        "errors": errors,
+    }
 
 
 def find_matching_order_history_row(
@@ -3227,8 +3321,85 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                     f"ENTRY BLOCKED ({symbol}) | Invalid qty from risk model."
                                 )
                             else:
-                                entry_submission_ok = False
                                 order_plan = result.get("order_plan")
+                                exec_mode = str(exec_ctx.get("mode", "paper")).lower()
+                                market_category = normalize_bybit_category(
+                                    result.get("market_category"),
+                                    fallback=default_bybit_category,
+                                )
+                                if (
+                                    order_plan
+                                    and exchange_name == "bybit"
+                                    and market_category == "spot"
+                                ):
+                                    qty_constraints = qty_constraints_map.get(f"spot:{symbol}", {})
+                                    qty_step = to_float((qty_constraints or {}).get("qty_step"), 0.0)
+                                    min_qty = to_float((qty_constraints or {}).get("min_qty"), 0.0)
+                                    max_qty = to_float((qty_constraints or {}).get("max_qty"), 0.0)
+                                    min_notional = to_float((qty_constraints or {}).get("min_notional"), 0.0)
+                                    entry_price = to_float(
+                                        result.get("wait_price"),
+                                        to_float(result.get("price"), 0.0),
+                                    )
+                                    usdt_available = to_float(account_balance_summary.get("usdt_available"), 0.0)
+                                    if entry_price > 0 and usdt_available > 0:
+                                        affordable_qty = (usdt_available * SPOT_ENTRY_QUOTE_BUFFER) / entry_price
+                                        if max_qty > 0:
+                                            affordable_qty = min(affordable_qty, max_qty)
+                                        if qty_step > 0:
+                                            affordable_qty = floor_to_step(affordable_qty, qty_step)
+                                        if affordable_qty <= 0:
+                                            qty = 0.0
+                                            result["qty"] = qty
+                                            result["note"] = (
+                                                f"{result.get('note', '')} | Insufficient wallet after rounding "
+                                                f"({usdt_available:.2f} USDT available)"
+                                            ).strip(" |")
+                                        elif affordable_qty < qty:
+                                            qty = affordable_qty
+                                            result["qty"] = qty
+                                            sl_price = to_float(result.get("sl_price"), 0.0)
+                                            if sl_price > 0:
+                                                result["risk_usdt"] = abs(entry_price - sl_price) * qty
+                                            result["note"] = (
+                                                f"{result.get('note', '')} | Qty adjusted to wallet "
+                                                f"({usdt_available:.2f} USDT available)"
+                                            ).strip(" |")
+                                    if (
+                                        exec_mode == "live"
+                                        and bool(account_balance_summary.get("fetched"))
+                                        and usdt_available <= 0
+                                    ):
+                                        qty = 0.0
+                                        result["qty"] = qty
+                                        result["note"] = (
+                                            f"{result.get('note', '')} | Live wallet reports zero available USDT"
+                                        ).strip(" |")
+                                    if min_qty > 0 and qty < min_qty:
+                                        cycle_alerts.append(
+                                            f"ENTRY BLOCKED ({symbol}) | Qty below min order "
+                                            f"({qty:.8f} < {min_qty:.8f}) after wallet sizing."
+                                        )
+                                        continue
+                                    if min_notional > 0 and entry_price > 0 and (qty * entry_price) < min_notional:
+                                        cycle_alerts.append(
+                                            f"ENTRY BLOCKED ({symbol}) | Order value below min order value "
+                                            f"({qty * entry_price:.6f} < {min_notional:.6f}) after wallet sizing."
+                                        )
+                                        continue
+                                    if qty <= 0:
+                                        cycle_alerts.append(
+                                            f"ENTRY BLOCKED ({symbol}) | Insufficient USDT available for minimum order."
+                                        )
+                                        continue
+                                    qty_text = format_order_qty(qty, qty_step=qty_step)
+                                    order_plan.setdefault("entry_order", {})["qty"] = qty_text
+                                    if "take_profit_order" in order_plan:
+                                        order_plan["take_profit_order"]["qty"] = qty_text
+                                    if "stop_loss_order" in order_plan:
+                                        order_plan["stop_loss_order"]["qty"] = qty_text
+
+                                entry_submission_ok = False
                                 if order_plan:
                                     exec_result = execute_bybit_order_plan(
                                         config=config,
@@ -3319,6 +3490,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                             close_qty = to_float(pos.get("sellable_qty"), qty)
                             if entry > 0 and qty > 0:
                                 exit_allowed = True
+                                clear_local_after_failed_exit = False
                                 exit_fill: Dict[str, Any] = {}
                                 exec_mode = str(exec_ctx.get("mode", "paper")).lower()
                                 market_category = normalize_bybit_category(
@@ -3348,7 +3520,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                 if (
                                     exec_mode == "live"
                                     and exchange_name == "bybit"
-                                    and market_category == "spot"
+                                    and market_category != "spot"
                                     and close_qty <= 0
                                 ):
                                     cycle_alerts.append(
@@ -3367,23 +3539,135 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                     continue
                                 if exec_mode == "live" and exchange_name == "bybit" and market_category == "spot":
                                     qty_constraints = qty_constraints_map.get(f"spot:{symbol}", {})
+                                    qty_step = to_float((qty_constraints or {}).get("qty_step"), 0.0)
+                                    min_qty = to_float((qty_constraints or {}).get("min_qty"), 0.0)
+                                    max_qty = to_float((qty_constraints or {}).get("max_qty"), 0.0)
                                     min_notional = to_float((qty_constraints or {}).get("min_notional"), 0.0)
                                     ref_price = to_float(result.get("price"), entry)
+                                    ref_price_for_min_notional = (
+                                        ref_price * SPOT_MIN_NOTIONAL_PRICE_HAIRCUT
+                                        if ref_price > 0
+                                        else ref_price
+                                    )
+
+                                    precheck_qty_source = close_qty if close_qty > 0 else qty
+                                    precheck_qty = (
+                                        floor_to_step(precheck_qty_source, qty_step)
+                                        if qty_step > 0
+                                        else precheck_qty_source
+                                    )
+                                    if max_qty > 0:
+                                        precheck_qty = min(precheck_qty, max_qty)
+                                    if precheck_qty <= 0:
+                                        cycle_alerts.append(
+                                            f"EXIT SKIPPED {symbol} | No sellable quantity available."
+                                        )
+                                        continue
+                                    if min_qty > 0 and precheck_qty < min_qty:
+                                        cycle_alerts.append(
+                                            f"EXIT SKIPPED {symbol} | Position quantity below min order "
+                                            f"({precheck_qty:.8f} < {min_qty:.8f})."
+                                        )
+                                        positions.pop(symbol, None)
+                                        spot_entry_hints.pop(symbol, None)
+                                        spot_close_candidates.pop(symbol, None)
+                                        continue
+                                    if (
+                                        min_notional > 0
+                                        and ref_price_for_min_notional > 0
+                                        and (precheck_qty * ref_price_for_min_notional) < min_notional
+                                    ):
+                                        cycle_alerts.append(
+                                            f"EXIT SKIPPED {symbol} | Position value below min order value "
+                                            f"({precheck_qty * ref_price_for_min_notional:.6f} < {min_notional:.6f})."
+                                        )
+                                        positions.pop(symbol, None)
+                                        spot_entry_hints.pop(symbol, None)
+                                        spot_close_candidates.pop(symbol, None)
+                                        continue
+
+                                    try:
+                                        pre_exit = cancel_spot_protective_orders_before_exit(
+                                            base_urls=get_bybit_base_urls(exchange_cfg),
+                                            api_key=str(exec_ctx.get("api_key", "")),
+                                            api_secret=str(exec_ctx.get("api_secret", "")),
+                                            recv_window=int(exec_ctx.get("recv_window", 5000)),
+                                            symbol=symbol,
+                                            target_qty=precheck_qty,
+                                        )
+                                        attempted = int(to_float(pre_exit.get("attempted"), 0.0))
+                                        cancelled = int(to_float(pre_exit.get("cancelled"), 0.0))
+                                        if attempted > 0:
+                                            cycle_alerts.append(
+                                                f"EXIT PREP {symbol} | cancelled protective orders "
+                                                f"{cancelled}/{attempted} before market exit."
+                                            )
+                                        for pre_err in pre_exit.get("errors", []) or []:
+                                            cycle_errors.append(f"[EXIT_PREP:{symbol}] Cancel warning: {pre_err}")
+                                    except Exception as e:
+                                        cycle_errors.append(
+                                            f"[EXIT_PREP:{symbol}] Protective-order cancel step failed: {e}"
+                                        )
+
+                                    try:
+                                        wallet_rows = fetch_bybit_wallet_coin_balances(
+                                            base_urls=get_bybit_base_urls(exchange_cfg),
+                                            api_key=str(exec_ctx.get("api_key", "")),
+                                            api_secret=str(exec_ctx.get("api_secret", "")),
+                                            recv_window=int(exec_ctx.get("recv_window", 5000)),
+                                        )
+                                        base_asset = split_symbol_base_quote(symbol).get("base", "")
+                                        coin_row = wallet_rows.get(base_asset, {})
+                                        wallet_qty = to_float(coin_row.get("wallet"), 0.0)
+                                        available_qty = to_float(coin_row.get("available"), wallet_qty)
+                                        free_qty = to_float(coin_row.get("free"), available_qty)
+                                        refreshed_sellable = min(
+                                            [q for q in (free_qty, available_qty, wallet_qty) if q > 0] or [0.0]
+                                        )
+                                        if refreshed_sellable > 0:
+                                            close_qty = refreshed_sellable
+                                    except Exception as e:
+                                        cycle_errors.append(
+                                            f"[EXIT_PREP:{symbol}] Wallet refresh after cancel failed: {e}"
+                                        )
+
+                                    if close_qty <= 0:
+                                        cycle_alerts.append(
+                                            f"EXIT SKIPPED {symbol} | Sellable balance is zero after prep."
+                                        )
+                                        continue
+
+                                    close_qty_for_order = close_qty
+                                    if qty_step > 0:
+                                        buffered_qty = floor_to_step(close_qty * SPOT_EXIT_QTY_BUFFER, qty_step)
+                                        if buffered_qty > 0:
+                                            buffered_ok = True
+                                            if min_qty > 0 and buffered_qty < min_qty:
+                                                buffered_ok = False
+                                            if (
+                                                min_notional > 0
+                                                and ref_price_for_min_notional > 0
+                                                and (buffered_qty * ref_price_for_min_notional) < min_notional
+                                            ):
+                                                buffered_ok = False
+                                            if buffered_ok:
+                                                close_qty_for_order = buffered_qty
                                     exit_plan = build_bybit_spot_exit_order_plan(
                                         symbol=symbol,
-                                        qty=close_qty,
+                                        qty=close_qty_for_order,
                                         order_group_id=build_order_group_id(
                                             symbol=symbol,
                                             close_time=result.get("close_time"),
                                         ),
                                         qty_constraints=qty_constraints,
-                                        reference_price=ref_price,
+                                        reference_price=ref_price_for_min_notional,
                                     )
                                     if not exit_plan:
-                                        qty_step = to_float((qty_constraints or {}).get("qty_step"), 0.0)
-                                        min_qty = to_float((qty_constraints or {}).get("min_qty"), 0.0)
-                                        max_qty = to_float((qty_constraints or {}).get("max_qty"), 0.0)
-                                        adjusted_qty = floor_to_step(close_qty, qty_step) if qty_step > 0 else close_qty
+                                        adjusted_qty = (
+                                            floor_to_step(close_qty_for_order, qty_step)
+                                            if qty_step > 0
+                                            else close_qty_for_order
+                                        )
                                         if max_qty > 0:
                                             adjusted_qty = min(adjusted_qty, max_qty)
                                         exit_allowed = False
@@ -3392,10 +3676,14 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                                 f"EXIT BLOCKED {symbol} | Qty below min order after rounding "
                                                 f"({adjusted_qty:.8f} < {min_qty:.8f})."
                                             )
-                                        elif min_notional > 0 and ref_price > 0 and (adjusted_qty * ref_price) < min_notional:
+                                        elif (
+                                            min_notional > 0
+                                            and ref_price_for_min_notional > 0
+                                            and (adjusted_qty * ref_price_for_min_notional) < min_notional
+                                        ):
                                             cycle_alerts.append(
                                                 f"EXIT SKIPPED {symbol} | Position value below min order value "
-                                                f"({adjusted_qty * ref_price:.6f} < {min_notional:.6f})."
+                                                f"({adjusted_qty * ref_price_for_min_notional:.6f} < {min_notional:.6f})."
                                             )
                                             positions.pop(symbol, None)
                                             spot_entry_hints.pop(symbol, None)
@@ -3472,8 +3760,63 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                             cycle_alerts.append(
                                                 f"EXIT EXECUTION FAILED {symbol} | {exec_result.get('message')}"
                                             )
+                                            exit_ret_code = int(
+                                                to_float(
+                                                    exec_result.get("responses", {})
+                                                    .get("exit_order", {})
+                                                    .get("retCode"),
+                                                    0,
+                                                )
+                                            )
+                                            if exit_ret_code in {170131, 170140}:
+                                                try:
+                                                    wallet_rows = fetch_bybit_wallet_coin_balances(
+                                                        base_urls=get_bybit_base_urls(exchange_cfg),
+                                                        api_key=str(exec_ctx.get("api_key", "")),
+                                                        api_secret=str(exec_ctx.get("api_secret", "")),
+                                                        recv_window=int(exec_ctx.get("recv_window", 5000)),
+                                                    )
+                                                    base_asset = split_symbol_base_quote(symbol).get("base", "")
+                                                    coin_row = wallet_rows.get(base_asset, {})
+                                                    wallet_qty = to_float(coin_row.get("wallet"), 0.0)
+                                                    available_qty = to_float(coin_row.get("available"), wallet_qty)
+                                                    free_qty = to_float(coin_row.get("free"), available_qty)
+                                                    live_sellable = min(
+                                                        [q for q in (free_qty, available_qty, wallet_qty) if q > 0]
+                                                        or [0.0]
+                                                    )
+                                                    qty_step = to_float((qty_constraints or {}).get("qty_step"), 0.0)
+                                                    min_qty = to_float((qty_constraints or {}).get("min_qty"), 0.0)
+                                                    min_notional = to_float((qty_constraints or {}).get("min_notional"), 0.0)
+                                                    qty_threshold = min_qty if min_qty > 0 else 0.0
+                                                    if min_notional > 0 and ref_price_for_min_notional > 0:
+                                                        qty_threshold = max(
+                                                            qty_threshold,
+                                                            (min_notional / ref_price_for_min_notional),
+                                                        )
+                                                    dust_qty = (
+                                                        floor_to_step(live_sellable, qty_step)
+                                                        if qty_step > 0
+                                                        else live_sellable
+                                                    )
+                                                    if dust_qty <= qty_threshold:
+                                                        clear_local_after_failed_exit = True
+                                                        cycle_alerts.append(
+                                                            f"EXIT CLEANUP {symbol} | Remaining balance is dust "
+                                                            f"({dust_qty:.8f}), clearing local state."
+                                                        )
+                                                except Exception as e:
+                                                    cycle_errors.append(
+                                                        f"[LIVE_SYNC:{symbol}] Wallet check after failed exit: {e}"
+                                                    )
 
                                 if not exit_allowed:
+                                    if clear_local_after_failed_exit:
+                                        positions.pop(symbol, None)
+                                        live_synced_positions.pop(symbol, None)
+                                        live_synced_pending_entries.pop(symbol, None)
+                                        spot_entry_hints.pop(symbol, None)
+                                        spot_close_candidates.pop(symbol, None)
                                     continue
 
                                 positions.pop(symbol, None)

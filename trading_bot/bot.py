@@ -3418,9 +3418,15 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         to_float(result.get("price"), 0.0),
                                     )
                                     usdt_available = to_float(account_balance_summary.get("usdt_available"), 0.0)
+                                    wallet_balances_ready = bool(account_balance_summary.get("coins_fetched"))
+                                    live_spot_requires_wallet = exec_mode == "live"
+                                    if live_spot_requires_wallet and not wallet_balances_ready:
+                                        cycle_alerts.append(
+                                            f"ENTRY BLOCKED ({symbol}) | Live wallet balance unavailable; retry on next scan."
+                                        )
+                                        continue
                                     wallet_sizing_applied = (
-                                        exec_mode == "live"
-                                        and bool(account_balance_summary.get("coins_fetched"))
+                                        live_spot_requires_wallet and wallet_balances_ready
                                     )
                                     if wallet_sizing_applied:
                                         if entry_price > 0 and usdt_available > 0:
@@ -3661,6 +3667,11 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                             f"[EXIT_HANDOFF:{symbol}] Protective-order check failed: "
                                             f"{protective_check_error}"
                                         )
+                                        cycle_alerts.append(
+                                            f"EXIT DEFERRED {symbol} | Protective-order check unavailable; "
+                                            "skip manual exit this cycle."
+                                        )
+                                        continue
                                     if protective_ok:
                                         cycle_alerts.append(
                                             f"EXIT HANDOFF {symbol} | Bybit native TP/SL manages close; "

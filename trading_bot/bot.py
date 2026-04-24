@@ -1207,6 +1207,39 @@ def fetch_bybit_open_orders_for_symbol(
     )
 
 
+def has_bybit_spot_protective_sell_order(
+    open_orders: List[Dict[str, Any]],
+    target_qty: float = 0.0,
+) -> bool:
+    for row in open_orders:
+        side = str(row.get("side", "")).upper()
+        if side != "SELL":
+            continue
+        order_filter = str(row.get("orderFilter", "")).strip().lower()
+        stop_order_type = str(row.get("stopOrderType", "")).strip().lower()
+        trigger_price = to_float(row.get("triggerPrice"), 0.0)
+        bot_owned = is_bot_owned_marker(row)
+        tpsl_like = (
+            order_filter in {"tpslorder", "stoporder"}
+            or "take" in stop_order_type
+            or "stop" in stop_order_type
+            or trigger_price > 0
+        )
+        if not tpsl_like:
+            continue
+        row_qty = abs(to_float(row.get("qty"), 0.0))
+        if target_qty > 0 and row_qty > 0:
+            qty_diff = abs(row_qty - target_qty) / max(target_qty, 1e-12)
+            if qty_diff <= 0.05:
+                return True
+        elif bot_owned or order_filter in {"tpslorder", "stoporder"}:
+            return True
+        elif row_qty <= 0:
+            # Keep a permissive fallback for exchange-managed TP/SL rows that omit qty details.
+            return True
+    return False
+
+
 def fetch_bybit_order_history_for_symbol(
     base_urls: List[str],
     api_key: str,
@@ -2702,6 +2735,31 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         cycle_errors.append(f"[SPOT_DISCOVERY] Error: {e}")
 
+    tracked_symbols = set()
+    for container in (
+        positions,
+        live_open_positions_state,
+        live_pending_entries_state,
+        spot_entry_hints,
+    ):
+        if not isinstance(container, dict):
+            continue
+        for raw_symbol in container.keys():
+            symbol = str(raw_symbol).upper().strip()
+            if symbol:
+                tracked_symbols.add(symbol)
+    for symbol in sorted(tracked_symbols):
+        if symbol in seen_symbols:
+            continue
+        seen_symbols.add(symbol)
+        symbol_jobs.append(
+            {
+                "symbol": symbol,
+                "category": default_bybit_category if exchange_name == "bybit" else "",
+                "source": "STATE_TRACKED",
+            }
+        )
+
     ticker_maps: Dict[str, Dict[str, Dict[str, Any]]] = {}
     qty_constraints_map: Dict[str, Dict[str, float]] = {}
     if exchange_name == "bybit" and liq_cfg.get("enabled"):
@@ -3555,17 +3613,56 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         f"EXIT BLOCKED {symbol} | Spot position not marked as bot-owned."
                                     )
                                     continue
+                                spot_exit_handoff = (
+                                    exchange_name == "bybit"
+                                    and market_category == "spot"
+                                    and not should_submit_bybit_spot_exit_order(exec_ctx)
+                                )
+                                if spot_exit_handoff and exec_mode != "live":
+                                    if signal == "SELL_NOW":
+                                        cycle_alerts.append(
+                                            f"EXIT HANDOFF {symbol} | Paper parity mode: ignore trend SELL; "
+                                            "wait for TP/SL-style close."
+                                        )
+                                        continue
                                 if (
                                     exec_mode == "live"
                                     and exchange_name == "bybit"
                                     and market_category == "spot"
-                                    and not should_submit_bybit_spot_exit_order(exec_ctx)
+                                    and spot_exit_handoff
                                 ):
+                                    protective_ok = False
+                                    protective_check_error = ""
+                                    try:
+                                        open_orders_rows = fetch_bybit_open_orders_for_symbol(
+                                            base_urls=get_bybit_base_urls(exchange_cfg),
+                                            api_key=str(exec_ctx.get("api_key", "")),
+                                            api_secret=str(exec_ctx.get("api_secret", "")),
+                                            recv_window=int(exec_ctx.get("recv_window", 5000)),
+                                            category="spot",
+                                            symbol=symbol,
+                                        )
+                                        protective_ok = has_bybit_spot_protective_sell_order(
+                                            open_orders=open_orders_rows,
+                                            target_qty=close_qty if close_qty > 0 else qty,
+                                        )
+                                    except Exception as e:
+                                        protective_check_error = str(e)
+                                    if protective_check_error:
+                                        cycle_errors.append(
+                                            f"[EXIT_HANDOFF:{symbol}] Protective-order check failed: "
+                                            f"{protective_check_error}"
+                                        )
+                                    if protective_ok:
+                                        cycle_alerts.append(
+                                            f"EXIT HANDOFF {symbol} | Bybit native TP/SL manages close; "
+                                            "bot market exit disabled."
+                                        )
+                                        continue
                                     cycle_alerts.append(
-                                        f"EXIT HANDOFF {symbol} | Bybit native TP/SL manages close; "
-                                        "bot market exit disabled."
+                                        f"EXIT FALLBACK {symbol} | No active TP/SL protective order detected; "
+                                        "submit bot market exit."
                                     )
-                                    continue
                                 if exec_mode == "live" and exchange_name == "bybit" and market_category == "spot":
                                     qty_constraints = qty_constraints_map.get(f"spot:{symbol}", {})
                                     qty_step = to_float((qty_constraints or {}).get("qty_step"), 0.0)

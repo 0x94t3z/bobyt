@@ -177,6 +177,8 @@ By default, spot entries attach native TP/SL to the entry order via:
 `execution.bybit.spot_native_tpsl_on_entry=true` (recommended).
 With native TP/SL enabled, default exit behavior is:
 `execution.bybit.spot_submit_exit_order=false` (recommended) so Bybit closes positions via TP/SL and the bot avoids duplicate market-exit sells.
+If TP/SL protective orders are missing in live mode, bot falls back to submit a market exit for safety.
+In paper mode with this handoff setup, trend-only `SELL_NOW` is ignored to better mirror live TP/SL-driven closes.
 Only if you intentionally disable that protection should you set:
 `execution.live_safety.allow_unprotected_spot_entry=true`.
 

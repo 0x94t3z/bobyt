@@ -93,7 +93,7 @@
     "max_execution_events": 1000
   },
   "execution": {
-    "mode": "live",
+    "mode": "paper",
     "assume_filled_on_submit": false,
     "recv_window_ms": 5000,
     "live_safety": {

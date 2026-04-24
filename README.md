@@ -127,7 +127,7 @@ Main file: `configs/config.json`
 | `price_filter` | `enabled`, `max_price_usdt`, `apply_to_watchlist`, `apply_to_spot_discovery` | Hard gate by token price (e.g. only <= `1.0`) |
 | `strategy` | EMA/RSI/pullback/TP/SL + `regime_filter` | Entry/exit behavior and choppy-market gating |
 | `risk` | `risk_per_trade_pct`, `max_position_notional_usdt`, `max_open_positions`, `max_daily_loss_pct`, `compounding.autoscale` | Position sizing + circuit breakers |
-| `execution` | `mode`, `assume_filled_on_submit`, `live_safety` | Paper vs live and live locks |
+| `execution` | `mode`, `assume_filled_on_submit`, `live_safety`, `bybit.spot_native_tpsl_on_entry`, `bybit.spot_submit_exit_order` | Paper vs live, live locks, and how spot exits are handled |
 | `liquidity_filter` | `max_spread_pct`, `min_turnover_24h_usdt` | Avoid illiquid setups |
 | `journal` | `enabled`, `max_closed_trades`, `max_execution_events` | Performance + execution-event history retention |
 
@@ -175,6 +175,8 @@ The app auto-loads `.env` locally. Keep real secrets only in `.env` or platform 
 For Bybit **spot live mode**, set `execution.assume_filled_on_submit` to `false` so fills are exchange-synced (safer than simulated fills).
 By default, spot entries attach native TP/SL to the entry order via:
 `execution.bybit.spot_native_tpsl_on_entry=true` (recommended).
+With native TP/SL enabled, default exit behavior is:
+`execution.bybit.spot_submit_exit_order=false` (recommended) so Bybit closes positions via TP/SL and the bot avoids duplicate market-exit sells.
 Only if you intentionally disable that protection should you set:
 `execution.live_safety.allow_unprotected_spot_entry=true`.
 

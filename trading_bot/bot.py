@@ -1654,6 +1654,7 @@ def get_execution_config(config: Dict[str, Any]) -> Dict[str, Any]:
     ensure_runtime_env()
     exec_cfg = config.get("execution", {})
     bybit_cfg = exec_cfg.get("bybit", {})
+    spot_submit_exit_order_raw = bybit_cfg.get("spot_submit_exit_order", None)
     live_safety_cfg = exec_cfg.get("live_safety", {})
     env_mode = os.getenv("TRADING_BOT_EXECUTION_MODE", "")
     mode = str(env_mode or exec_cfg.get("mode", "paper")).lower()
@@ -1665,6 +1666,9 @@ def get_execution_config(config: Dict[str, Any]) -> Dict[str, Any]:
         "api_secret": str(bybit_cfg.get("api_secret", "") or os.getenv("BYBIT_API_SECRET", "")),
         "bybit": {
             "spot_native_tpsl_on_entry": bool(bybit_cfg.get("spot_native_tpsl_on_entry", True)),
+            "spot_submit_exit_order": (
+                None if spot_submit_exit_order_raw is None else bool(spot_submit_exit_order_raw)
+            ),
         },
         "live_safety": {
             "require_manual_unlock": bool(live_safety_cfg.get("require_manual_unlock", True)),
@@ -1681,6 +1685,16 @@ def get_execution_config(config: Dict[str, Any]) -> Dict[str, Any]:
             "ack_phrase": str(os.getenv("TRADING_BOT_LIVE_ACK", "")).strip(),
         },
     }
+
+
+def should_submit_bybit_spot_exit_order(exec_ctx: Dict[str, Any]) -> bool:
+    bybit_exec_cfg = exec_ctx.get("bybit", {})
+    submit_exit_override = bybit_exec_cfg.get("spot_submit_exit_order", None)
+    if submit_exit_override is not None:
+        return bool(submit_exit_override)
+    # Safe default for spot live:
+    # if entry already has native TP/SL on exchange, avoid duplicate manual exit sells.
+    return not bool(bybit_exec_cfg.get("spot_native_tpsl_on_entry", True))
 
 
 def evaluate_live_execution_guard(
@@ -3541,6 +3555,17 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         f"EXIT BLOCKED {symbol} | Spot position not marked as bot-owned."
                                     )
                                     continue
+                                if (
+                                    exec_mode == "live"
+                                    and exchange_name == "bybit"
+                                    and market_category == "spot"
+                                    and not should_submit_bybit_spot_exit_order(exec_ctx)
+                                ):
+                                    cycle_alerts.append(
+                                        f"EXIT HANDOFF {symbol} | Bybit native TP/SL manages close; "
+                                        "bot market exit disabled."
+                                    )
+                                    continue
                                 if exec_mode == "live" and exchange_name == "bybit" and market_category == "spot":
                                     qty_constraints = qty_constraints_map.get(f"spot:{symbol}", {})
                                     qty_step = to_float((qty_constraints or {}).get("qty_step"), 0.0)
@@ -4253,6 +4278,10 @@ def validate_config(config: Dict[str, Any]) -> None:
         bybit_exec_cfg.get("spot_native_tpsl_on_entry"), bool
     ):
         raise ValueError("execution.bybit.spot_native_tpsl_on_entry must be boolean")
+    if "spot_submit_exit_order" in bybit_exec_cfg and not isinstance(
+        bybit_exec_cfg.get("spot_submit_exit_order"), bool
+    ):
+        raise ValueError("execution.bybit.spot_submit_exit_order must be boolean")
     required_phrase = str(live_safety_cfg.get("required_ack_phrase", LIVE_ACK_DEFAULT)).strip()
     if not required_phrase:
         raise ValueError("execution.live_safety.required_ack_phrase cannot be empty")

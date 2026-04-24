@@ -1313,14 +1313,16 @@ def cancel_spot_protective_orders_before_exit(
             or trigger_price > 0
         )
         if not bot_owned:
-            if not tpsl_like or target_qty <= 0:
+            # Extra-safe path for non-bot orders: only touch explicit TP/SL orders
+            # with very-close quantity match to avoid cancelling user manual sells.
+            if order_filter != "tpslorder" or not tpsl_like or target_qty <= 0:
                 continue
             row_qty = abs(to_float(row.get("qty"), 0.0))
             if row_qty <= 0:
                 continue
             qty_diff = abs(row_qty - target_qty) / max(target_qty, 1e-12)
             # Tight guard: only touch non-bot TP/SL-like sells when qty is very close.
-            if qty_diff > 0.05:
+            if qty_diff > 0.01:
                 continue
         candidates.append(
             {
@@ -2653,6 +2655,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         "supported": exchange_name == "bybit",
         "configured": False,
         "fetched": False,
+        "coins_fetched": False,
         "source": "",
         "equity_usdt": 0.0,
         "usdt_wallet": 0.0,
@@ -2778,6 +2781,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                 account_balance_summary["usdt_wallet"] = usdt_wallet
                 account_balance_summary["usdt_available"] = usdt_available
                 account_balance_summary["fetched"] = True
+                account_balance_summary["coins_fetched"] = True
                 account_balance_summary["source"] = (
                     "wallet_equity+coins"
                     if account_balance_summary.get("equity_usdt", 0.0) > 0
@@ -3367,7 +3371,7 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                             ).strip(" |")
                                     if (
                                         exec_mode == "live"
-                                        and bool(account_balance_summary.get("fetched"))
+                                        and bool(account_balance_summary.get("coins_fetched"))
                                         and usdt_available <= 0
                                     ):
                                         qty = 0.0
@@ -3568,9 +3572,6 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                             f"EXIT SKIPPED {symbol} | Position quantity below min order "
                                             f"({precheck_qty:.8f} < {min_qty:.8f})."
                                         )
-                                        positions.pop(symbol, None)
-                                        spot_entry_hints.pop(symbol, None)
-                                        spot_close_candidates.pop(symbol, None)
                                         continue
                                     if (
                                         min_notional > 0
@@ -3581,9 +3582,6 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                             f"EXIT SKIPPED {symbol} | Position value below min order value "
                                             f"({precheck_qty * ref_price_for_min_notional:.6f} < {min_notional:.6f})."
                                         )
-                                        positions.pop(symbol, None)
-                                        spot_entry_hints.pop(symbol, None)
-                                        spot_close_candidates.pop(symbol, None)
                                         continue
 
                                     try:

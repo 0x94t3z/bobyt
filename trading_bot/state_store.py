@@ -109,6 +109,11 @@ def get_state_backend() -> str:
     return "file"
 
 
+def allow_postgres_file_fallback() -> bool:
+    # Default ON: keep bot/API running if Postgres has a transient outage.
+    return parse_env_bool(os.getenv("TRADING_BOT_POSTGRES_FALLBACK_TO_FILE"), True)
+
+
 def _storage_key_from_path(path: str, purpose: str) -> str:
     env_key_name = (
         "TRADING_BOT_STATUS_STORAGE_KEY" if purpose == "status" else "TRADING_BOT_STATE_STORAGE_KEY"
@@ -288,15 +293,32 @@ def _save_to_postgres(path: str, payload: Any, purpose: str) -> None:
 def load_persisted_json(path: str, fallback: Any, purpose: str = "state") -> Any:
     backend = get_state_backend()
     if backend == "postgres":
-        return _load_from_postgres(path=path, fallback=fallback, purpose=purpose)
+        try:
+            return _load_from_postgres(path=path, fallback=fallback, purpose=purpose)
+        except Exception as e:
+            if not allow_postgres_file_fallback():
+                raise
+            print(
+                f"[STATE_STORE] Postgres load failed, fallback to file for {purpose}: {e}"
+            )
+            return _load_json_file(path=path, fallback=fallback)
     return _load_json_file(path=path, fallback=fallback)
 
 
 def save_persisted_json(path: str, payload: Any, purpose: str = "state") -> None:
     backend = get_state_backend()
     if backend == "postgres":
-        _save_to_postgres(path=path, payload=payload, purpose=purpose)
-        return
+        try:
+            _save_to_postgres(path=path, payload=payload, purpose=purpose)
+            return
+        except Exception as e:
+            if not allow_postgres_file_fallback():
+                raise
+            print(
+                f"[STATE_STORE] Postgres save failed, fallback to file for {purpose}: {e}"
+            )
+            _save_json_file(path=path, payload=payload)
+            return
     _save_json_file(path=path, payload=payload)
 
 

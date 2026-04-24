@@ -3418,55 +3418,63 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         to_float(result.get("price"), 0.0),
                                     )
                                     usdt_available = to_float(account_balance_summary.get("usdt_available"), 0.0)
-                                    if entry_price > 0 and usdt_available > 0:
-                                        affordable_qty = (usdt_available * SPOT_ENTRY_QUOTE_BUFFER) / entry_price
-                                        if max_qty > 0:
-                                            affordable_qty = min(affordable_qty, max_qty)
-                                        if qty_step > 0:
-                                            affordable_qty = floor_to_step(affordable_qty, qty_step)
-                                        if affordable_qty <= 0:
+                                    wallet_sizing_applied = (
+                                        exec_mode == "live"
+                                        and bool(account_balance_summary.get("coins_fetched"))
+                                    )
+                                    if wallet_sizing_applied:
+                                        if entry_price > 0 and usdt_available > 0:
+                                            affordable_qty = (
+                                                usdt_available * SPOT_ENTRY_QUOTE_BUFFER
+                                            ) / entry_price
+                                            if max_qty > 0:
+                                                affordable_qty = min(affordable_qty, max_qty)
+                                            if qty_step > 0:
+                                                affordable_qty = floor_to_step(affordable_qty, qty_step)
+                                            if affordable_qty <= 0:
+                                                qty = 0.0
+                                                result["qty"] = qty
+                                                result["note"] = (
+                                                    f"{result.get('note', '')} | Insufficient wallet after rounding "
+                                                    f"({usdt_available:.2f} USDT available)"
+                                                ).strip(" |")
+                                            elif affordable_qty < qty:
+                                                qty = affordable_qty
+                                                result["qty"] = qty
+                                                sl_price = to_float(result.get("sl_price"), 0.0)
+                                                if sl_price > 0:
+                                                    result["risk_usdt"] = abs(entry_price - sl_price) * qty
+                                                result["note"] = (
+                                                    f"{result.get('note', '')} | Qty adjusted to wallet "
+                                                    f"({usdt_available:.2f} USDT available)"
+                                                ).strip(" |")
+                                        elif usdt_available <= 0:
                                             qty = 0.0
                                             result["qty"] = qty
                                             result["note"] = (
-                                                f"{result.get('note', '')} | Insufficient wallet after rounding "
-                                                f"({usdt_available:.2f} USDT available)"
+                                                f"{result.get('note', '')} | Live wallet reports zero available USDT"
                                             ).strip(" |")
-                                        elif affordable_qty < qty:
-                                            qty = affordable_qty
-                                            result["qty"] = qty
-                                            sl_price = to_float(result.get("sl_price"), 0.0)
-                                            if sl_price > 0:
-                                                result["risk_usdt"] = abs(entry_price - sl_price) * qty
-                                            result["note"] = (
-                                                f"{result.get('note', '')} | Qty adjusted to wallet "
-                                                f"({usdt_available:.2f} USDT available)"
-                                            ).strip(" |")
-                                    if (
-                                        exec_mode == "live"
-                                        and bool(account_balance_summary.get("coins_fetched"))
-                                        and usdt_available <= 0
-                                    ):
-                                        qty = 0.0
-                                        result["qty"] = qty
-                                        result["note"] = (
-                                            f"{result.get('note', '')} | Live wallet reports zero available USDT"
-                                        ).strip(" |")
                                     if min_qty > 0 and qty < min_qty:
                                         cycle_alerts.append(
                                             f"ENTRY BLOCKED ({symbol}) | Qty below min order "
-                                            f"({qty:.8f} < {min_qty:.8f}) after wallet sizing."
+                                            f"({qty:.8f} < {min_qty:.8f}) after exchange sizing."
                                         )
                                         continue
                                     if min_notional > 0 and entry_price > 0 and (qty * entry_price) < min_notional:
                                         cycle_alerts.append(
                                             f"ENTRY BLOCKED ({symbol}) | Order value below min order value "
-                                            f"({qty * entry_price:.6f} < {min_notional:.6f}) after wallet sizing."
+                                            f"({qty * entry_price:.6f} < {min_notional:.6f}) after exchange sizing."
                                         )
                                         continue
                                     if qty <= 0:
-                                        cycle_alerts.append(
-                                            f"ENTRY BLOCKED ({symbol}) | Insufficient USDT available for minimum order."
-                                        )
+                                        if wallet_sizing_applied:
+                                            cycle_alerts.append(
+                                                f"ENTRY BLOCKED ({symbol}) | Insufficient USDT available for minimum order."
+                                            )
+                                        else:
+                                            cycle_alerts.append(
+                                                f"ENTRY BLOCKED ({symbol}) | Qty collapsed below exchange constraints."
+                                            )
                                         continue
                                     qty_text = format_order_qty(qty, qty_step=qty_step)
                                     order_plan.setdefault("entry_order", {})["qty"] = qty_text

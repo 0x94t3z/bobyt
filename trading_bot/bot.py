@@ -3624,8 +3624,9 @@ def scan_once(config: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
                                         refreshed_sellable = min(
                                             [q for q in (free_qty, available_qty, wallet_qty) if q > 0] or [0.0]
                                         )
-                                        if refreshed_sellable > 0:
-                                            close_qty = refreshed_sellable
+                                        # Always replace with refreshed exchange value (including zero)
+                                        # to avoid reusing stale sellable qty after protective-order cancel.
+                                        close_qty = refreshed_sellable
                                     except Exception as e:
                                         cycle_errors.append(
                                             f"[EXIT_PREP:{symbol}] Wallet refresh after cancel failed: {e}"

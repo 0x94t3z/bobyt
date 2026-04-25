@@ -70,7 +70,7 @@
       }
     },
     "max_daily_loss_pct": 2.0,
-    "max_consecutive_losses": 3,
+    "max_consecutive_losses": 2,
     "max_open_positions": 1,
     "cooldown_minutes_after_loss": 20,
     "pause_on_limit": true

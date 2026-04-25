@@ -37,6 +37,17 @@ def is_set_env(name: str) -> bool:
     return bool(str(os.getenv(name, "")).strip())
 
 
+def normalize_mode(value: Any, fallback: str = "paper") -> str:
+    raw = str(value or "").strip().lower()
+    if raw in {"paper", "live", "demo"}:
+        return raw
+    return fallback
+
+
+def to_live_like_mode(mode: str) -> str:
+    return "live" if str(mode).lower() == "demo" else str(mode).lower()
+
+
 def check(condition: bool, ok: str, fail: str, failures: List[str], passes: List[str]) -> None:
     if condition:
         passes.append(ok)
@@ -97,10 +108,11 @@ def main() -> int:
         failures.append(f"Runtime config validation failed: {e}")
 
     exec_cfg = config.get("execution", {})
-    mode = str(exec_cfg.get("mode", "paper")).lower()
-    runtime_mode = str(runtime_config.get("execution", {}).get("mode", "paper")).lower()
+    mode = normalize_mode(exec_cfg.get("mode", "paper"), "paper")
+    runtime_mode = normalize_mode(runtime_config.get("execution", {}).get("mode", "paper"), "paper")
     env_mode_raw = str(os.getenv("TRADING_BOT_EXECUTION_MODE", "")).strip().lower()
-    effective_runtime_mode = env_mode_raw if env_mode_raw in {"paper", "live"} else runtime_mode
+    effective_runtime_mode = normalize_mode(env_mode_raw, runtime_mode)
+    effective_live_mode = to_live_like_mode(effective_runtime_mode)
     runtime_exchange_cfg = runtime_config.get("exchange", {})
     runtime_category = str(runtime_exchange_cfg.get("category", "linear")).lower()
     runtime_assume_filled = bool(runtime_config.get("execution", {}).get("assume_filled_on_submit", False))
@@ -115,8 +127,7 @@ def main() -> int:
     storage_backend = storage_info.get("backend", "file")
     comp_cfg = config.get("risk", {}).get("compounding", {})
     comp_enabled = bool(comp_cfg.get("enabled", False))
-    exchange_cfg = config.get("exchange", {})
-    base_url = str(exchange_cfg.get("base_url", ""))
+    base_url = str(runtime_exchange_cfg.get("base_url", ""))
     required_ack = str(
         exec_cfg.get("live_safety", {}).get("required_ack_phrase", "I_UNDERSTAND_LIVE_TRADING_RISK")
     ).strip()
@@ -195,25 +206,50 @@ def main() -> int:
                 "State backend is file-based on Vercel. Consider PostgreSQL (Neon) to avoid state loss on cold starts."
             )
 
-    if effective_runtime_mode == "live":
-        check(
-            is_set_env("BYBIT_API_KEY"),
-            "BYBIT_API_KEY is set.",
-            "Missing BYBIT_API_KEY.",
-            failures,
-            passes,
-        )
-        check(
-            is_set_env("BYBIT_API_SECRET"),
-            "BYBIT_API_SECRET is set.",
-            "Missing BYBIT_API_SECRET.",
-            failures,
-            passes,
-        )
+    if effective_live_mode == "live":
+        live_mode_label = effective_runtime_mode
+        if effective_runtime_mode == "demo":
+            check(
+                is_set_env("BYBIT_API_KEY_DEMO") or is_set_env("BYBIT_API_KEY"),
+                "Demo API key is set (BYBIT_API_KEY_DEMO or BYBIT_API_KEY).",
+                "Missing demo API key. Set BYBIT_API_KEY_DEMO (recommended).",
+                failures,
+                passes,
+            )
+            check(
+                is_set_env("BYBIT_API_SECRET_DEMO") or is_set_env("BYBIT_API_SECRET"),
+                "Demo API secret is set (BYBIT_API_SECRET_DEMO or BYBIT_API_SECRET).",
+                "Missing demo API secret. Set BYBIT_API_SECRET_DEMO (recommended).",
+                failures,
+                passes,
+            )
+            check(
+                is_testnet_url(base_url),
+                "Demo mode uses testnet endpoint.",
+                "Demo mode requires testnet base_url (api-testnet.bybit.com).",
+                failures,
+                passes,
+            )
+        else:
+            check(
+                is_set_env("BYBIT_API_KEY"),
+                "BYBIT_API_KEY is set.",
+                "Missing BYBIT_API_KEY.",
+                failures,
+                passes,
+            )
+            check(
+                is_set_env("BYBIT_API_SECRET"),
+                "BYBIT_API_SECRET is set.",
+                "Missing BYBIT_API_SECRET.",
+                failures,
+                passes,
+            )
+
         check(
             parse_env_bool(os.getenv("TRADING_BOT_ALLOW_LIVE"), False),
             "TRADING_BOT_ALLOW_LIVE=true",
-            "Set TRADING_BOT_ALLOW_LIVE=true for live mode.",
+            f"Set TRADING_BOT_ALLOW_LIVE=true for {live_mode_label} mode.",
             failures,
             passes,
         )
@@ -241,12 +277,8 @@ def main() -> int:
                 failures,
                 passes,
             )
-            if effective_runtime_mode != "live":
-                failures.append(
-                    f"Runtime mode resolves to '{effective_runtime_mode}' on Vercel; expected 'live'."
-                )
 
-    if effective_runtime_mode == "live":
+    if effective_live_mode == "live":
         risk_cfg = runtime_config.get("risk", {})
         max_notional = float(risk_cfg.get("max_position_notional_usdt", 0.0))
         if max_notional > 100:

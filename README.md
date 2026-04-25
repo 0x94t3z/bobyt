@@ -77,6 +77,27 @@ python3 apps/crypto_alert_bot.py --config configs/config.json --once
 python3 -m streamlit run apps/ui_dashboard.py
 ```
 
+## Execution Modes (Single Switch)
+
+Use one key to switch behavior:
+
+```env
+TRADING_BOT_EXECUTION_MODE=paper   # or demo or live
+```
+
+Mode behavior:
+
+| Mode | Orders submitted? | Endpoint | Real money? |
+|---|---|---|---|
+| `paper` | No | market-data only | No |
+| `demo` | Yes | Bybit testnet | No |
+| `live` | Yes | Bybit mainnet | Yes |
+
+Important:
+- Runtime mode comes from `TRADING_BOT_EXECUTION_MODE`.
+- `demo` automatically forces testnet endpoint at runtime.
+- `live` requires `TRADING_BOT_ALLOW_MAINNET=true` when using mainnet URL.
+
 ## Command Cheatsheet
 
 | Use case | Command |
@@ -109,8 +130,11 @@ Need cloud scheduled scans?
   -> Deploy API on Vercel + schedule via cron-job.org:
      /api/scan endpoint with token auth
 
+Need exchange-submitted but safe testing?
+  -> TRADING_BOT_EXECUTION_MODE=demo + demo API keys + live locks + preflight
+
 Need real-money execution?
-  -> execution.mode=live + all live env locks enabled + preflight must pass
+  -> TRADING_BOT_EXECUTION_MODE=live + mainnet allow flag + mainnet API keys + preflight
 ```
 
 ## Config Guide
@@ -162,15 +186,51 @@ If thresholds are not met, bot stays at base `risk.max_position_notional_usdt`.
 
 The app auto-loads `.env` locally. Keep real secrets only in `.env` or platform secret manager.
 
-### Required for live mode
+### Core mode switch
+
+| Variable | Value |
+|---|---|
+| `TRADING_BOT_EXECUTION_MODE` | `paper`, `demo`, or `live` |
+
+### Required locks for `demo` and `live`
 
 | Variable | Required value |
 |---|---|
-| `BYBIT_API_KEY` | your Bybit API key |
-| `BYBIT_API_SECRET` | your Bybit API secret |
 | `TRADING_BOT_ALLOW_LIVE` | `true` |
 | `TRADING_BOT_LIVE_ACK` | exact phrase: `I_UNDERSTAND_LIVE_TRADING_RISK` |
-| `TRADING_BOT_ALLOW_MAINNET` | `true` when using mainnet URL |
+| `TRADING_BOT_ALLOW_MAINNET` | `false` for demo, `true` for real live |
+
+### API key mapping by mode
+
+| Mode | Keys used |
+|---|---|
+| `paper` | none required |
+| `demo` | `BYBIT_API_KEY_DEMO` + `BYBIT_API_SECRET_DEMO` (fallback to main keys if empty) |
+| `live` | `BYBIT_API_KEY` + `BYBIT_API_SECRET` |
+
+Copy-paste examples:
+
+Demo (testnet):
+
+```env
+TRADING_BOT_EXECUTION_MODE=demo
+TRADING_BOT_ALLOW_LIVE=true
+TRADING_BOT_LIVE_ACK=I_UNDERSTAND_LIVE_TRADING_RISK
+TRADING_BOT_ALLOW_MAINNET=false
+BYBIT_API_KEY_DEMO=your_demo_key
+BYBIT_API_SECRET_DEMO=your_demo_secret
+```
+
+Real live (mainnet money):
+
+```env
+TRADING_BOT_EXECUTION_MODE=live
+TRADING_BOT_ALLOW_LIVE=true
+TRADING_BOT_LIVE_ACK=I_UNDERSTAND_LIVE_TRADING_RISK
+TRADING_BOT_ALLOW_MAINNET=true
+BYBIT_API_KEY=your_mainnet_key
+BYBIT_API_SECRET=your_mainnet_secret
+```
 
 For Bybit **spot live mode**, set `execution.assume_filled_on_submit` to `false` so fills are exchange-synced (safer than simulated fills).
 By default, spot entries attach native TP/SL to the entry order via:
@@ -192,6 +252,12 @@ Only if you intentionally disable that protection should you set:
 | `TRADING_BOT_ALLOWED_ORIGIN=<https://your-dashboard-domain>` | Optional CORS allow-origin for cross-origin dashboards (leave empty for same-origin only) |
 | `TRADING_BOT_ALLOW_LIVE_ON_VERCEL` | `true` only if you intentionally allow live orders on Vercel |
 | `TRADING_BOT_SCAN_LOCK_TTL_SECONDS=180` | Overlap lock TTL for `/api/scan` (prevents cron+manual double-run) |
+
+If mode is `demo` or `live` on Vercel, also set:
+
+```env
+TRADING_BOT_ALLOW_LIVE_ON_VERCEL=true
+```
 
 ### Neon/PostgreSQL state backend
 

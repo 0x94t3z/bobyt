@@ -1,9 +1,9 @@
 {
   "exchange": {
     "name": "bybit",
-    "base_url": "https://api.bytick.com",
+    "base_url": "https://api.bybit.com",
     "backup_base_urls": [
-      "https://api.bybit.com"
+      "https://api.bytick.com"
     ],
     "category": "spot"
   },
@@ -99,7 +99,7 @@
     "max_execution_events": 1000
   },
   "execution": {
-    "mode": "paper",
+    "mode": "live",
     "assume_filled_on_submit": false,
     "recv_window_ms": 5000,
     "live_safety": {

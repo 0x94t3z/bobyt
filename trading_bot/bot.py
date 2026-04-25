@@ -99,6 +99,8 @@ BINANCE_INTERVAL_MAP: Dict[str, str] = {
 
 TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 LIVE_ACK_DEFAULT = "I_UNDERSTAND_LIVE_TRADING_RISK"
+SUPPORTED_EXECUTION_MODES = {"paper", "live", "demo"}
+BYBIT_DEMO_BASE_URL = "https://api-testnet.bybit.com"
 _ENV_LOADED = False
 SPOT_ENTRY_QUOTE_BUFFER = 0.995
 SPOT_EXIT_QTY_BUFFER = 0.997
@@ -121,6 +123,20 @@ def parse_env_bool(value: Any, default: bool = False) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in TRUTHY_ENV_VALUES
+
+
+def normalize_execution_mode(value: Any, fallback: str = "paper") -> str:
+    raw = str(value or "").strip().lower()
+    if raw in SUPPORTED_EXECUTION_MODES:
+        return raw
+    return fallback
+
+
+def to_live_like_mode(mode: Any) -> str:
+    raw = str(mode or "").strip().lower()
+    if raw == "demo":
+        return "live"
+    return raw
 
 
 def load_env_file(path: str = ".env", override: bool = False) -> Dict[str, str]:
@@ -179,13 +195,44 @@ def apply_runtime_safety_overrides(config: Dict[str, Any]) -> List[str]:
     """
     ensure_runtime_env()
     notes: List[str] = []
+
+    exec_cfg = config.setdefault("execution", {})
+    config_mode = normalize_execution_mode(exec_cfg.get("mode", "paper"), "paper")
+    env_mode_raw = str(os.getenv("TRADING_BOT_EXECUTION_MODE", "")).strip().lower()
+    selected_mode = normalize_execution_mode(env_mode_raw, config_mode)
+    exec_cfg["mode"] = selected_mode
+    if selected_mode != config_mode:
+        notes.append(
+            f"Runtime execution mode override: '{config_mode}' -> '{selected_mode}' "
+            "(from TRADING_BOT_EXECUTION_MODE)."
+        )
+
+    if selected_mode == "demo":
+        exchange_cfg = config.setdefault("exchange", {})
+        demo_base_url = str(os.getenv("TRADING_BOT_DEMO_BASE_URL", BYBIT_DEMO_BASE_URL)).strip()
+        if not demo_base_url:
+            demo_base_url = BYBIT_DEMO_BASE_URL
+        current_base_url = str(exchange_cfg.get("base_url", "")).strip()
+        backup_urls = exchange_cfg.get("backup_base_urls", [])
+        if current_base_url != demo_base_url:
+            exchange_cfg["base_url"] = demo_base_url
+            notes.append("Demo mode enabled: exchange.base_url forced to Bybit testnet.")
+        if not isinstance(backup_urls, list):
+            backup_urls = []
+        testnet_backups = [str(url).strip() for url in backup_urls if is_testnet_url(str(url))]
+        if demo_base_url not in testnet_backups:
+            testnet_backups.insert(0, demo_base_url)
+        if testnet_backups != backup_urls:
+            exchange_cfg["backup_base_urls"] = testnet_backups
+            notes.append("Demo mode enabled: exchange.backup_base_urls limited to testnet hosts.")
+
     if not is_running_on_vercel():
         return notes
 
-    exec_cfg = config.setdefault("execution", {})
     mode = str(exec_cfg.get("mode", "paper")).lower()
+    live_mode = to_live_like_mode(mode)
     allow_live_on_vercel = parse_env_bool(os.getenv("TRADING_BOT_ALLOW_LIVE_ON_VERCEL"), False)
-    if mode == "live" and not allow_live_on_vercel:
+    if live_mode == "live" and not allow_live_on_vercel:
         exec_cfg["mode"] = "paper"
         notes.append(
             "Vercel safety override: execution.mode forced to 'paper'. "
@@ -1757,14 +1804,29 @@ def get_execution_config(config: Dict[str, Any]) -> Dict[str, Any]:
     bybit_cfg = exec_cfg.get("bybit", {})
     spot_submit_exit_order_raw = bybit_cfg.get("spot_submit_exit_order", None)
     live_safety_cfg = exec_cfg.get("live_safety", {})
-    env_mode = os.getenv("TRADING_BOT_EXECUTION_MODE", "")
-    mode = str(env_mode or exec_cfg.get("mode", "paper")).lower()
+    # Runtime mode must come from the runtime config itself.
+    # prepare_config_for_runtime() is the only place that should apply env overrides.
+    mode_raw = normalize_execution_mode(exec_cfg.get("mode", "paper"), "paper")
+    mode = to_live_like_mode(mode_raw)
+    demo_api_key = str(bybit_cfg.get("api_key_demo", "") or os.getenv("BYBIT_API_KEY_DEMO", ""))
+    demo_api_secret = str(
+        bybit_cfg.get("api_secret_demo", "") or os.getenv("BYBIT_API_SECRET_DEMO", "")
+    )
+    base_api_key = str(bybit_cfg.get("api_key", "") or os.getenv("BYBIT_API_KEY", ""))
+    base_api_secret = str(bybit_cfg.get("api_secret", "") or os.getenv("BYBIT_API_SECRET", ""))
+    if mode_raw == "demo":
+        api_key = demo_api_key or base_api_key
+        api_secret = demo_api_secret or base_api_secret
+    else:
+        api_key = base_api_key
+        api_secret = base_api_secret
     return {
         "mode": mode,
+        "mode_raw": mode_raw,
         "assume_filled_on_submit": bool(exec_cfg.get("assume_filled_on_submit", False)),
         "recv_window": int(exec_cfg.get("recv_window_ms", 5000)),
-        "api_key": str(bybit_cfg.get("api_key", "") or os.getenv("BYBIT_API_KEY", "")),
-        "api_secret": str(bybit_cfg.get("api_secret", "") or os.getenv("BYBIT_API_SECRET", "")),
+        "api_key": api_key,
+        "api_secret": api_secret,
         "bybit": {
             "spot_native_tpsl_on_entry": bool(bybit_cfg.get("spot_native_tpsl_on_entry", True)),
             "spot_submit_exit_order": (
@@ -4197,13 +4259,15 @@ def run_bot(config: Dict[str, Any], run_once: bool = False) -> None:
     notify_cfg = get_notifications_config(config)
     scan_every_seconds = int(config["scan_every_seconds"])
     interval = config["interval"]
-    exec_mode = get_execution_config(config).get("mode", "paper")
+    exec_ctx = get_execution_config(config)
+    exec_mode = str(exec_ctx.get("mode", "paper")).lower()
+    exec_mode_label = str(exec_ctx.get("mode_raw", exec_mode)).lower()
     guard = evaluate_live_execution_guard(config=config, exchange_cfg=exchange_cfg)
 
     print("Starting free crypto alert bot...")
     print(
         f"Exchange={exchange_name} | Symbols: {', '.join(symbols)} "
-        f"| interval={interval} | scan={scan_every_seconds}s | execution={exec_mode}"
+        f"| interval={interval} | scan={scan_every_seconds}s | execution={exec_mode_label}"
     )
     for note in config.get("_runtime_notes", []):
         print(f"Runtime note: {note}")
@@ -4478,10 +4542,12 @@ def validate_config(config: Dict[str, Any]) -> None:
     if "max_execution_events" in journal_cfg and int(journal_cfg.get("max_execution_events", 0)) <= 0:
         raise ValueError("journal.max_execution_events must be > 0")
     exec_cfg = config.get("execution", {})
-    env_mode = os.getenv("TRADING_BOT_EXECUTION_MODE", "")
-    mode = str(env_mode or exec_cfg.get("mode", "paper")).lower()
-    if mode not in {"paper", "live"}:
-        raise ValueError("execution.mode must be 'paper' or 'live'")
+    # Validation should be deterministic for the provided config object.
+    # Environment overrides are already applied by prepare_config_for_runtime().
+    mode_raw = str(exec_cfg.get("mode", "paper")).lower()
+    if mode_raw not in SUPPORTED_EXECUTION_MODES:
+        raise ValueError("execution.mode must be 'paper', 'demo', or 'live'")
+    mode = to_live_like_mode(mode_raw)
     if mode == "live" and exchange_name != "bybit":
         raise ValueError("execution.mode='live' currently supports only exchange.name='bybit'")
     if mode == "live" and exchange_name == "bybit":

@@ -14,6 +14,9 @@ BYBIT_DEFAULT_BASE_URLS = [
     "https://api.bybit.com",
     "https://api.bytick.com",
 ]
+BYBIT_TESTNET_BASE_URLS = [
+    "https://api-testnet.bybit.com",
+]
 
 
 def to_float(value: Any, fallback: float = 0.0) -> float:
@@ -47,7 +50,10 @@ def get_bybit_base_urls(exchange_cfg: Dict[str, Any]) -> List[str]:
         candidates.append(base_url)
     if isinstance(backup_urls, list):
         candidates.extend(str(url) for url in backup_urls)
-    candidates.extend(BYBIT_DEFAULT_BASE_URLS)
+    is_testnet = "testnet" in base_url.lower() or any(
+        "testnet" in str(url).lower() for url in (backup_urls or [])
+    )
+    candidates.extend(BYBIT_TESTNET_BASE_URLS if is_testnet else BYBIT_DEFAULT_BASE_URLS)
     return dedupe_urls(candidates)
 
 

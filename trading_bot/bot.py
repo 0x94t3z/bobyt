@@ -360,6 +360,74 @@ def get_regime_filter_config(strategy_cfg: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def get_noise_filter_config(strategy_cfg: Dict[str, Any]) -> Dict[str, Any]:
+    noise_cfg = strategy_cfg.get("noise_filter", {})
+    return {
+        "enabled": bool(noise_cfg.get("enabled", False)),
+        "lookback_candles": max(5, int(to_float(noise_cfg.get("lookback_candles"), 20))),
+        "min_efficiency_ratio": max(0.0, to_float(noise_cfg.get("min_efficiency_ratio"), 0.0)),
+        "max_recent_return_pct": max(0.0, to_float(noise_cfg.get("max_recent_return_pct"), 0.0)),
+    }
+
+
+def evaluate_noise_filter(
+    strategy_cfg: Dict[str, Any],
+    closes: List[float],
+) -> Dict[str, Any]:
+    noise_cfg = get_noise_filter_config(strategy_cfg)
+    if not noise_cfg.get("enabled", False):
+        return {
+            "enabled": False,
+            "ok": True,
+            "lookback_candles": 0,
+            "efficiency_ratio": 0.0,
+            "recent_return_pct": 0.0,
+            "reason": "",
+        }
+    if len(closes) < 6:
+        return {
+            "enabled": True,
+            "ok": False,
+            "lookback_candles": 0,
+            "efficiency_ratio": 0.0,
+            "recent_return_pct": 0.0,
+            "reason": "not_enough_candles",
+        }
+
+    lookback = min(int(noise_cfg.get("lookback_candles", 20)), len(closes) - 1)
+    if lookback < 2:
+        return {
+            "enabled": True,
+            "ok": False,
+            "lookback_candles": lookback,
+            "efficiency_ratio": 0.0,
+            "recent_return_pct": 0.0,
+            "reason": "lookback_too_short",
+        }
+    window = closes[-(lookback + 1) :]
+    total_path = sum(abs(window[i] - window[i - 1]) for i in range(1, len(window)))
+    net_move = abs(window[-1] - window[0])
+    efficiency_ratio = (net_move / total_path) if total_path > 0 else 0.0
+    recent_return_pct = (abs((window[-1] / window[0]) - 1.0) * 100.0) if window[0] > 0 else 0.0
+
+    blockers: List[str] = []
+    min_eff = to_float(noise_cfg.get("min_efficiency_ratio"), 0.0)
+    if min_eff > 0 and efficiency_ratio < min_eff:
+        blockers.append(f"efficiency {efficiency_ratio:.3f} < {min_eff:.3f}")
+    max_ret = to_float(noise_cfg.get("max_recent_return_pct"), 0.0)
+    if max_ret > 0 and recent_return_pct > max_ret:
+        blockers.append(f"move {recent_return_pct:.2f}% > {max_ret:.2f}%")
+
+    return {
+        "enabled": True,
+        "ok": len(blockers) == 0,
+        "lookback_candles": lookback,
+        "efficiency_ratio": efficiency_ratio,
+        "recent_return_pct": recent_return_pct,
+        "reason": "; ".join(blockers),
+    }
+
+
 def evaluate_regime_filter(
     strategy_cfg: Dict[str, Any],
     ema_fast_now: float,
@@ -2107,25 +2175,48 @@ def fetch_klines(
     exchange_name = str(exchange_cfg.get("name", "binance")).lower()
     base_url = exchange_cfg.get("base_url", "")
     if exchange_name == "binance":
-        return fetch_klines_binance(
+        candles = fetch_klines_binance(
             symbol=symbol,
             interval=interval,
             limit=limit,
             base_url=base_url,
         )
+        return filter_to_confirmed_closed_candles(candles=candles, interval=interval)
     if exchange_name == "bybit":
         category = category_override or str(exchange_cfg.get("category", "linear"))
-        return fetch_klines_bybit(
+        candles = fetch_klines_bybit(
             symbol=symbol,
             interval=interval,
             limit=limit,
             base_urls=get_bybit_base_urls(exchange_cfg),
             category=category,
         )
+        return filter_to_confirmed_closed_candles(candles=candles, interval=interval)
     raise ValueError(
         f"Unsupported exchange '{exchange_name}'. "
         f"Supported: {', '.join(sorted(SUPPORTED_EXCHANGES))}"
     )
+
+
+def filter_to_confirmed_closed_candles(
+    candles: List[Dict[str, Any]],
+    interval: str,
+    now_ms: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    if not candles:
+        return []
+    if now_ms is None:
+        now_ms = int(time.time() * 1000)
+    interval_ms = interval_to_milliseconds(interval)
+    close_grace_ms = max(1000, int(interval_ms * 0.01)) if interval_ms > 0 else 1000
+    cutoff_ms = now_ms - close_grace_ms
+    closed = [
+        row
+        for row in candles
+        if int(to_float(row.get("close_time"), 0.0)) > 0
+        and int(to_float(row.get("close_time"), 0.0)) <= cutoff_ms
+    ]
+    return closed
 
 
 def fetch_bybit_tickers(base_urls: List[str], category: str = "spot") -> List[Dict[str, Any]]:
@@ -2322,6 +2413,10 @@ def analyze_symbol(
         ema_slow_prev=ema_slow_prev,
         price_now=price_now,
     )
+    noise_eval = evaluate_noise_filter(
+        strategy_cfg=strategy_cfg,
+        closes=closes,
+    )
     trend_pct = to_float(regime_eval.get("trend_pct"), 0.0)
     score = (trend_pct * 2.0) + (1.0 - min(abs(rsi_now - 60.0), 40.0) / 40.0) * 2.0
 
@@ -2335,6 +2430,8 @@ def analyze_symbol(
         "score": score,
         "trend_pct": trend_pct,
         "slow_ema_slope_pct": to_float(regime_eval.get("slow_ema_slope_pct"), 0.0),
+        "noise_efficiency_ratio": to_float(noise_eval.get("efficiency_ratio"), 0.0),
+        "noise_recent_return_pct": to_float(noise_eval.get("recent_return_pct"), 0.0),
         "close_time": close_time,
         "signal": None,
         "action": "WAIT",
@@ -2413,6 +2510,16 @@ def analyze_symbol(
             result["sl_price"] = exits["sl_price"]
             result["note"] = (
                 f"Regime filter blocked entry ({regime_eval.get('reason', 'weak trend')})"
+            )
+            return result
+        if not noise_eval.get("ok", True):
+            result["action"] = "WAIT_NOISE"
+            result["wait_price"] = limit_price
+            exits = build_exit_prices(limit_price, tp_pct, sl_pct)
+            result["tp_price"] = exits["tp_price"]
+            result["sl_price"] = exits["sl_price"]
+            result["note"] = (
+                f"Noise filter blocked entry ({noise_eval.get('reason', 'choppy market')})"
             )
             return result
         exits = build_exit_prices(limit_price, tp_pct, sl_pct)
@@ -4285,6 +4392,19 @@ def validate_config(config: Dict[str, Any]) -> None:
         for key in ("min_trend_pct", "min_ema_slope_pct"):
             if key in regime_cfg and to_float(regime_cfg.get(key), 0) < 0:
                 raise ValueError(f"strategy.regime_filter.{key} must be >= 0")
+    noise_cfg = strategy_cfg.get("noise_filter", {})
+    if noise_cfg and not isinstance(noise_cfg, dict):
+        raise ValueError("strategy.noise_filter must be an object")
+    if isinstance(noise_cfg, dict):
+        if "enabled" in noise_cfg and not isinstance(noise_cfg.get("enabled"), bool):
+            raise ValueError("strategy.noise_filter.enabled must be boolean")
+        if "lookback_candles" in noise_cfg and int(to_float(noise_cfg.get("lookback_candles"), 0)) < 2:
+            raise ValueError("strategy.noise_filter.lookback_candles must be >= 2")
+        for key in ("min_efficiency_ratio", "max_recent_return_pct"):
+            if key in noise_cfg and to_float(noise_cfg.get(key), 0) < 0:
+                raise ValueError(f"strategy.noise_filter.{key} must be >= 0")
+        if "min_efficiency_ratio" in noise_cfg and to_float(noise_cfg.get("min_efficiency_ratio"), 0) > 1:
+            raise ValueError("strategy.noise_filter.min_efficiency_ratio must be <= 1")
     risk_cfg = config.get("risk", {})
     for key in (
         "account_equity_usdt",

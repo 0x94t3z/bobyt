@@ -18,7 +18,9 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from trading_bot.bot import (  # noqa: E402
+    build_default_state,
     ensure_runtime_env,
+    ensure_risk_state,
     load_json_file,
     parse_env_bool,
     prepare_config_for_runtime,
@@ -496,7 +498,8 @@ class handler(BaseHTTPRequestHandler):
       }
       .control.token { grid-column: span 7; }
       .control.refresh { grid-column: span 2; }
-      .control.action { grid-column: span 3; justify-content: flex-end; }
+      .control.action { grid-column: span 2; justify-content: flex-end; }
+      .control.reset { grid-column: span 1; justify-content: flex-end; }
       .control label {
         color: var(--sub);
         font-size: 11px;
@@ -526,11 +529,16 @@ class handler(BaseHTTPRequestHandler):
         font-weight: 700;
         transition: transform 120ms ease, filter 120ms ease;
       }
+      button.secondary {
+        background: #15191f;
+        border: 1px solid #393123;
+        color: var(--accent);
+      }
       button:hover { filter: brightness(1.06); transform: translateY(-1px); }
-      .control.action button { width: 100%; }
+      .control.action button, .control.reset button { width: 100%; }
       .stats {
         display: grid;
-        grid-template-columns: repeat(8, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
         gap: 10px;
         margin-top: 12px;
       }
@@ -687,7 +695,7 @@ class handler(BaseHTTPRequestHandler):
         }
         .portfolio-coin-mark { width: 40px; height: 40px; font-size: 18px; }
         .controls { grid-template-columns: 1fr; padding: 10px; }
-        .control.token, .control.refresh, .control.action { grid-column: span 1; }
+        .control.token, .control.refresh, .control.action, .control.reset { grid-column: span 1; }
         .stats { grid-template-columns: 1fr 1fr; }
         .title-row { flex-direction: column; align-items: flex-start; }
         th, td { font-size: 13px; }
@@ -807,6 +815,10 @@ class handler(BaseHTTPRequestHandler):
             <label for="refreshBtn">Action</label>
             <button id="refreshBtn">Refresh Now</button>
           </div>
+          <div class="control reset">
+            <label for="resetPauseBtn">Risk</label>
+            <button id="resetPauseBtn" class="secondary">Reset</button>
+          </div>
         </div>
         <div class="status" id="status">
           <div class="status-main" id="statusMain">Ready. Waiting for backend snapshot.</div>
@@ -822,6 +834,11 @@ class handler(BaseHTTPRequestHandler):
         <div class="stat"><div class="k">Pending Entries</div><div class="v warn" id="m_pending">-</div></div>
         <div class="stat"><div class="k">Errors</div><div class="v err" id="m_err">-</div></div>
         <div class="stat"><div class="k">Execution</div><div class="v" id="m_exec">-</div></div>
+        <div class="stat">
+          <div class="k">Risk Pause</div>
+          <div class="v" id="m_pause">-</div>
+          <div class="s muted" id="m_pause_note">-</div>
+        </div>
         <div class="stat">
           <div class="k">USDT Available</div>
           <div class="v ok" id="m_usdt">-</div>
@@ -1374,6 +1391,9 @@ class handler(BaseHTTPRequestHandler):
             $("m_pending").textContent = "-";
             $("m_err").textContent = "-";
             $("m_exec").textContent = "-";
+            $("m_pause").textContent = "-";
+            $("m_pause").className = "v";
+            $("m_pause_note").textContent = "-";
             $("m_usdt").textContent = "-";
             $("m_usdt_note").textContent = "-";
             $("u_balance").textContent = "-";
@@ -1396,6 +1416,14 @@ class handler(BaseHTTPRequestHandler):
           $("m_pending").textContent = text(data.positions?.pending_entry_count);
           $("m_err").textContent = text(data.summary?.errors);
           $("m_exec").textContent = text((data.execution_mode || "").toUpperCase());
+          const risk = data.risk_state || {};
+          const paused = Boolean(risk.paused);
+          $("m_pause").textContent = paused ? "YES" : "NO";
+          $("m_pause").className = paused ? "v err" : "v ok";
+          const consec = num(risk.consecutive_losses, 0);
+          const dailyPnl = fmtUsdt(risk.daily_realized_pnl_usdt);
+          const pauseReason = risk.pause_reason ? shortErr(risk.pause_reason) : "losses " + consec + " • day " + dailyPnl;
+          $("m_pause_note").textContent = pauseReason;
           const bal = data.account_balance || {};
           if (!bal.supported) {
             $("m_usdt").textContent = "N/A";
@@ -1453,9 +1481,30 @@ class handler(BaseHTTPRequestHandler):
         timer = setInterval(fetchStatus, sec * 1000);
       }
 
+      async function resetPause() {
+        setStatus("Resetting risk pause...", "info");
+        setStatusMeta("Clearing pause, loss streak, and cooldown in persisted state.");
+        try {
+          const res = await fetch("/api/reset-pause", { method: "POST", headers: getAuthHeaders() });
+          const data = await res.json();
+          if (!res.ok || !data.ok) {
+            setStatus("Reset failed: " + (data.error || ("HTTP " + res.status)), "err");
+            setStatusMeta("Use the scan token for state-changing actions.");
+            return;
+          }
+          setStatus("Risk pause reset", "ok");
+          setStatusMeta("Pause cleared at " + text(data.time) + ". Refreshing snapshot...");
+          await fetchStatus();
+        } catch (e) {
+          setStatus("Reset network error: " + e, "err");
+          setStatusMeta("Unable to reach /api/reset-pause.");
+        }
+      }
+
       applyTheme();
 
       $("refreshBtn").addEventListener("click", fetchStatus);
+      $("resetPauseBtn").addEventListener("click", resetPause);
       $("refresh").addEventListener("change", applyAutoRefresh);
       applyAutoRefresh();
       fetchStatus();
@@ -1471,7 +1520,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(bobyt_favicon_svg().encode("utf-8"))
             return
 
-        if path not in {"/api", "/api/scan", "/api/status"}:
+        if path not in {"/api", "/api/scan", "/api/status", "/api/reset-pause"}:
             self._write_json(
                 {
                     "ok": False,
@@ -1495,15 +1544,80 @@ class handler(BaseHTTPRequestHandler):
             )
             return
 
-        if path in {"/api", "/api/scan"} and self.command != "POST":
+        if path in {"/api", "/api/scan", "/api/reset-pause"} and self.command != "POST":
             self._write_json(
                 {
                     "ok": False,
                     "time": now_utc_str(),
-                    "error": "Method not allowed for scan endpoint. Use POST /api/scan.",
+                    "error": "Method not allowed. Use POST for this endpoint.",
                 },
                 status_code=405,
             )
+            return
+
+        if path == "/api/reset-pause":
+            try:
+                ensure_runtime_env()
+                config_arg = str(query.get("config", [DEFAULT_CONFIG_PATH])[0])
+                config_path = resolve_config_path(config_arg)
+                config = load_json_file(str(config_path), None)
+                if config is None:
+                    self._write_json(
+                        {
+                            "ok": False,
+                            "time": now_utc_str(),
+                            "error": f"Config not found: {config_path}",
+                        },
+                        status_code=404,
+                    )
+                    return
+
+                runtime_config = prepare_config_for_runtime(config)
+                validate_config(runtime_config)
+                state_file = str(runtime_config.get("state_file", "state/bot_state.json"))
+                state = load_persisted_json(state_file, build_default_state(), purpose="state")
+                risk_state = ensure_risk_state(state)
+                before = dict(risk_state)
+
+                risk_state["paused"] = False
+                risk_state["pause_reason"] = ""
+                risk_state["paused_at"] = ""
+                risk_state["consecutive_losses"] = 0
+                risk_state["cooldown_until_ts"] = 0.0
+                risk_state["cooldown_reason"] = ""
+                risk_state["manual_reset_at"] = now_utc_str()
+                save_persisted_json(state_file, state, purpose="state")
+
+                status_file = resolve_status_file()
+                snapshot = load_persisted_json(status_file, None, purpose="status")
+                if isinstance(snapshot, dict):
+                    snapshot["risk_state"] = dict(risk_state)
+                    snapshot["time"] = now_utc_str()
+                    save_persisted_json(status_file, snapshot, purpose="status")
+
+                state_storage = describe_json_storage_backend(path=state_file, purpose="state")
+                self._write_json(
+                    {
+                        "ok": True,
+                        "time": now_utc_str(),
+                        "message": "Risk pause, loss streak, and cooldown cleared.",
+                        "state_file": state_file,
+                        "state_backend": state_storage.get("backend", "file"),
+                        "state_storage_key": state_storage.get("storage_key"),
+                        "before": before,
+                        "risk_state": risk_state,
+                    },
+                    status_code=200,
+                )
+            except Exception as e:
+                payload = {
+                    "ok": False,
+                    "time": now_utc_str(),
+                    "error": str(e),
+                }
+                if parse_env_bool(os.getenv("TRADING_BOT_DEBUG_API"), False):
+                    payload["trace"] = traceback.format_exc(limit=3)
+                self._write_json(payload, status_code=500)
             return
 
         if path == "/api/status":

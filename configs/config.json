@@ -19,11 +19,17 @@
   ],
   "spot_discovery": {
     "enabled": true,
-    "add_count": 6,
-    "min_turnover_usdt": 1500000,
-    "min_price_change_pct": 0.005,
+    "add_count": 4,
+    "min_turnover_usdt": 4000000,
+    "min_price_change_pct": 0.008,
     "fallback_to_best": true,
-    "exclude_symbols": []
+    "exclude_symbols": [
+      "APEUSDT",
+      "DYDXUSDT",
+      "ENSOUSDT",
+      "HYPERUSDT",
+      "PENGUUSDT"
+    ]
   },
   "price_filter": {
     "enabled": true,
@@ -44,15 +50,15 @@
     "regime_filter": {
       "enabled": true,
       "require_uptrend": true,
-      "min_trend_pct": 0.12,
+      "min_trend_pct": 0.2,
       "require_slow_ema_rising": true,
-      "min_ema_slope_pct": 0.03
+      "min_ema_slope_pct": 0.05
     },
     "noise_filter": {
       "enabled": true,
       "lookback_candles": 20,
-      "min_efficiency_ratio": 0.16,
-      "max_recent_return_pct": 8.0
+      "min_efficiency_ratio": 0.22,
+      "max_recent_return_pct": 6.0
     }
   },
   "risk": {

@@ -23,13 +23,7 @@
     "min_turnover_usdt": 4000000,
     "min_price_change_pct": 0.008,
     "fallback_to_best": true,
-    "exclude_symbols": [
-      "APEUSDT",
-      "DYDXUSDT",
-      "ENSOUSDT",
-      "HYPERUSDT",
-      "PENGUUSDT"
-    ]
+    "exclude_symbols": []
   },
   "price_filter": {
     "enabled": true,

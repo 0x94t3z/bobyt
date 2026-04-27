@@ -2534,14 +2534,14 @@ def analyze_symbol(
             f"TP {format_price(tp_price)}, SL {format_price(sl_price)}"
         )
 
-        if net_return_pct >= strategy_cfg["take_profit_pct"]:
+        if price_now >= tp_price:
             result["signal"] = "TAKE_PROFIT"
             result["action"] = "SELL"
             result["message"] = (
                 f"TAKE PROFIT NOW | {symbol} at {format_price(price_now)} "
                 f"(net {net_return_pct:.2f}%)"
             )
-        elif net_return_pct <= -strategy_cfg["stop_loss_pct"]:
+        elif price_now <= sl_price:
             result["signal"] = "STOP_LOSS"
             result["action"] = "SELL"
             result["message"] = (

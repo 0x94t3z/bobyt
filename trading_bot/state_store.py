@@ -90,12 +90,7 @@ def _to_float(value: Any, fallback: float = 0.0) -> float:
 
 
 def get_database_url() -> str:
-    return str(
-        os.getenv("NEW_TRADING_BOT_POSTGRES_URL", "")
-        or os.getenv("TRADING_BOT_POSTGRES_URL", "")
-        or os.getenv("NEON_DATABASE_URL", "")
-        or os.getenv("DATABASE_URL", "")
-    ).strip()
+    return str(os.getenv("TRADING_BOT_POSTGRES_URL", "")).strip()
 
 
 def get_state_backend() -> str:
@@ -164,8 +159,7 @@ def _postgres_connect():
     if not dsn:
         raise RuntimeError(
             "PostgreSQL backend enabled but no database URL found. "
-            "Set NEW_TRADING_BOT_POSTGRES_URL "
-            "(or TRADING_BOT_POSTGRES_URL / NEON_DATABASE_URL / DATABASE_URL)."
+            "Set TRADING_BOT_POSTGRES_URL."
         )
     parsed = urllib.parse.urlparse(dsn)
     if parsed.scheme not in {"postgres", "postgresql"}:

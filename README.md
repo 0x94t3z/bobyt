@@ -259,13 +259,12 @@ If mode is `demo` or `live` on Vercel, also set:
 TRADING_BOT_ALLOW_LIVE_ON_VERCEL=true
 ```
 
-### Neon/PostgreSQL state backend
+### PostgreSQL state backend
 
 | Variable | Purpose |
 |---|---|
 | `TRADING_BOT_STATE_BACKEND=postgres` | Enable Postgres persistence |
-| `NEW_TRADING_BOT_POSTGRES_URL=<neon_url>` | Preferred Neon connection string (`sslmode=require`) |
-| `TRADING_BOT_POSTGRES_URL=<neon_url>` | Legacy compatibility DB URL |
+| `TRADING_BOT_POSTGRES_URL=<postgres_url>` | PostgreSQL connection string (`sslmode=require`) |
 | `TRADING_BOT_POSTGRES_TABLE` | Optional table override (default: `trading_bot_state_store`) |
 | `TRADING_BOT_CLOSED_TRADES_TABLE` | Optional closed-trade journal table (default: `trading_bot_closed_trades`) |
 | `TRADING_BOT_POSTGRES_FALLBACK_TO_FILE` | Optional resiliency toggle (default `true`): fallback to local file state if Postgres is temporarily unavailable |
@@ -291,7 +290,7 @@ This repository uses:
 2. Import repo in Vercel.
 3. Add Vercel env vars:
    - live/auth vars (table above)
-   - Neon vars (`TRADING_BOT_STATE_BACKEND=postgres`, `NEW_TRADING_BOT_POSTGRES_URL=...`)
+   - Postgres vars (`TRADING_BOT_STATE_BACKEND=postgres`, `TRADING_BOT_POSTGRES_URL=...`)
 4. Deploy.
 
 ### cron-job.org job
@@ -372,4 +371,4 @@ Check:
 ### State resets on cloud
 
 If `TRADING_BOT_STATE_BACKEND=file`, state may reset on redeploy/cold start.  
-Use Neon Postgres (`TRADING_BOT_STATE_BACKEND=postgres`) for persistent production state.
+Use PostgreSQL (`TRADING_BOT_STATE_BACKEND=postgres`) for persistent production state.

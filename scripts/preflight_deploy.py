@@ -196,8 +196,7 @@ def main() -> int:
             check(
                 bool(get_database_url()),
                 "PostgreSQL URL is configured for state backend.",
-                "State backend is postgres but no NEW_TRADING_BOT_POSTGRES_URL/"
-                "TRADING_BOT_POSTGRES_URL/NEON_DATABASE_URL/DATABASE_URL is set.",
+                "State backend is postgres but TRADING_BOT_POSTGRES_URL is not set.",
                 failures,
                 passes,
             )

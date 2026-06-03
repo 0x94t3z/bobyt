@@ -7,4 +7,5 @@ __pycache__/
 runtime_logs/
 state/bot_state.json
 state/*.log
+state/migrations/
 paper.log

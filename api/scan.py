@@ -1654,12 +1654,23 @@ class handler(BaseHTTPRequestHandler):
         lock_owner = f"{os.getpid()}-{uuid.uuid4().hex[:12]}"
         lock_path = resolve_scan_lock_file()
         lock_ttl_seconds = resolve_scan_lock_ttl_seconds()
-        lock_acquired = acquire_named_lock(
-            path=lock_path,
-            name=lock_name,
-            owner=lock_owner,
-            ttl_seconds=lock_ttl_seconds,
-        )
+        try:
+            lock_acquired = acquire_named_lock(
+                path=lock_path,
+                name=lock_name,
+                owner=lock_owner,
+                ttl_seconds=lock_ttl_seconds,
+            )
+        except Exception as e:
+            payload: Dict[str, Any] = {
+                "ok": False,
+                "time": now_utc_str(),
+                "error": f"Failed to acquire scan lock: {e}",
+            }
+            if parse_env_bool(os.getenv("TRADING_BOT_DEBUG_API"), False):
+                payload["trace"] = traceback.format_exc(limit=3)
+            self._write_json(payload, status_code=500)
+            return
 
         if not lock_acquired:
             self._write_json(

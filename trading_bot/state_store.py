@@ -170,7 +170,18 @@ def _postgres_connect():
 
     query = urllib.parse.parse_qs(parsed.query or "")
     sslmode = str(query.get("sslmode", ["require"])[0] or "require").strip().lower()
-    ssl_context = None if sslmode == "disable" else ssl.create_default_context()
+    # PostgreSQL sslmode semantics:
+    # - require/prefer/allow: encrypt transport without certificate validation
+    # - verify-ca/verify-full: validate server certificate chain
+    if sslmode == "disable":
+        ssl_context = None
+    elif sslmode in {"verify-ca", "verify-full"}:
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = sslmode == "verify-full"
+    else:
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
 
     pg_dbapi = _import_pg8000_dbapi()
     return pg_dbapi.connect(

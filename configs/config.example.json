@@ -37,6 +37,7 @@
     "rsi_period": 14,
     "rsi_buy_min": 50,
     "rsi_buy_max": 72,
+    "require_fresh_cross_for_entry": true,
     "rsi_sell": 78,
     "limit_pullback_pct": 0.4,
     "take_profit_pct": 1.8,

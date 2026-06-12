@@ -2563,7 +2563,15 @@ def analyze_symbol(
     limit_price = min(price_now, ema_fast_now) * (1 - pullback)
     uptrend = ema_fast_now > ema_slow_now
 
-    if cross_up and buy_min <= rsi_now <= buy_max and price_now >= ema_fast_now:
+    require_fresh_cross_for_entry = bool(strategy_cfg.get("require_fresh_cross_for_entry", True))
+    entry_setup_ready = buy_min <= rsi_now <= buy_max and price_now >= ema_fast_now
+    can_enter_uptrend = (
+        cross_up
+        if require_fresh_cross_for_entry
+        else (uptrend and entry_setup_ready)
+    )
+
+    if entry_setup_ready and can_enter_uptrend:
         if not regime_eval.get("ok", True):
             result["action"] = "WAIT_REGIME"
             result["wait_price"] = limit_price
@@ -2590,7 +2598,9 @@ def analyze_symbol(
         result["wait_price"] = limit_price
         result["tp_price"] = exits["tp_price"]
         result["sl_price"] = exits["sl_price"]
-        result["note"] = "Trend cross confirmed"
+        result["note"] = (
+            "Trend cross confirmed" if cross_up else "Trend continuation entry"
+        )
         result["message"] = (
             f"LIMIT BUY NOW | {symbol} market {format_price(price_now)} "
             f"| suggested limit {format_price(limit_price)} "
@@ -4441,6 +4451,10 @@ def validate_config(config: Dict[str, Any]) -> None:
         if min_turnover < 0:
             raise ValueError("spot_discovery.min_turnover_usdt must be >= 0")
     strategy_cfg = config.get("strategy", {})
+    if "require_fresh_cross_for_entry" in strategy_cfg and not isinstance(
+        strategy_cfg.get("require_fresh_cross_for_entry"), bool
+    ):
+        raise ValueError("strategy.require_fresh_cross_for_entry must be boolean")
     regime_cfg = strategy_cfg.get("regime_filter", {})
     if regime_cfg and not isinstance(regime_cfg, dict):
         raise ValueError("strategy.regime_filter must be an object")
